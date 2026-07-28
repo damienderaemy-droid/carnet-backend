@@ -1,24 +1,25 @@
 """
-Étape 3 — Vraie base de données
-=================================
-Au lieu d'interroger l'API Switzerland Tourism à chaque visite, on stocke
-les résultats dans PostgreSQL et on les ressert depuis là. On ne rappelle
-l'API que si la base est vide, ou si les données ont plus de 24h.
+Étape 4 — Authentification réelle (Clerk)
+============================================
+Ajoute une vérification de connexion et une table pour stocker les goûts
+de chaque utilisateur, liés à son vrai compte (pas au navigateur).
 """
 
 import os
-import json
 from datetime import datetime, timedelta, timezone
 
 import requests
 import psycopg2
-from fastapi import FastAPI, Query
+import jwt
+from jwt import PyJWKClient
+from fastapi import FastAPI, Query, Header, HTTPException, Depends
 
 app = FastAPI(title="Carnet - API")
 
 ST_API_KEY = os.environ.get("ST_API_KEY", "")
 ST_BASE_URL = "https://opendata.myswitzerland.io/v1"
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+CLERK_JWKS_URL = os.environ.get("CLERK_JWKS_URL", "")
 
 GENRE_LABELS = {
     "nature": "Nature", "adventure": "Aventure", "active": "Actif",
@@ -26,23 +27,58 @@ GENRE_LABELS = {
     "culinary": "Culinaire", "relax": "Détente",
 }
 
+_jwks_client = None
+
+
+def get_jwks_client():
+    """Le client JWKS est mis en cache pour ne pas le recréer à chaque appel."""
+    global _jwks_client
+    if _jwks_client is None and CLERK_JWKS_URL:
+        _jwks_client = PyJWKClient(CLERK_JWKS_URL)
+    return _jwks_client
+
+
+def verifier_connexion(authorization: str = Header(default=None)) -> str:
+    """Vérifie le jeton envoyé par le frontend et renvoie l'identifiant Clerk
+    de la personne connectée. Bloque la requête si le jeton est absent/invalide."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Non connecté.")
+
+    jeton = authorization.removeprefix("Bearer ").strip()
+    client = get_jwks_client()
+    if client is None:
+        raise HTTPException(status_code=500, detail="Authentification mal configurée côté serveur.")
+
+    try:
+        cle_signature = client.get_signing_key_from_jwt(jeton)
+        contenu = jwt.decode(jeton, cle_signature.key, algorithms=["RS256"], options={"verify_aud": False})
+        return contenu["sub"]  # identifiant unique et stable de la personne, fourni par Clerk
+    except Exception:
+        raise HTTPException(status_code=401, detail="Session invalide ou expirée.")
+
 
 def get_connexion():
     return psycopg2.connect(DATABASE_URL)
 
 
 def initialiser_base():
-    """Crée la table si elle n'existe pas encore. Sans danger si déjà créée."""
     with get_connexion() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS activites (
                     id SERIAL PRIMARY KEY,
                     recherche TEXT NOT NULL,
-                    nom TEXT,
-                    resume TEXT,
-                    genre TEXT,
+                    nom TEXT, resume TEXT, genre TEXT,
                     recupere_le TIMESTAMPTZ NOT NULL
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS preferences (
+                    utilisateur_id TEXT NOT NULL,
+                    genre TEXT NOT NULL,
+                    score REAL NOT NULL DEFAULT 0,
+                    maj_le TIMESTAMPTZ NOT NULL,
+                    PRIMARY KEY (utilisateur_id, genre)
                 );
             """)
         conn.commit()
@@ -67,13 +103,10 @@ def extraire_genre(classification: list) -> str:
 
 
 def rafraichir_depuis_api(recherche: str):
-    """Va chercher les données fraîches et les enregistre dans la base."""
     data = appeler_api_st("attractions", {"query": recherche, "expand": "false"})
     maintenant = datetime.now(timezone.utc)
-
     with get_connexion() as conn:
         with conn.cursor() as cur:
-            # On supprime l'ancien cache pour cette recherche avant d'insérer le nouveau
             cur.execute("DELETE FROM activites WHERE recherche = %s", (recherche,))
             for item in data.get("data", []):
                 cur.execute(
@@ -85,22 +118,15 @@ def rafraichir_depuis_api(recherche: str):
 
 
 def lire_depuis_base(recherche: str):
-    """Renvoie (activités, sont-elles fraîches ?) depuis la base."""
     with get_connexion() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT nom, resume, genre, recupere_le FROM activites WHERE recherche = %s",
-                (recherche,)
-            )
+            cur.execute("SELECT nom, resume, genre, recupere_le FROM activites WHERE recherche = %s", (recherche,))
             lignes = cur.fetchall()
-
     if not lignes:
         return [], False
-
     _, _, _, recupere_le = lignes[0]
     fraiche = (datetime.now(timezone.utc) - recupere_le) < timedelta(hours=24)
-    activites = [{"nom": n, "resume": r, "genre": g} for n, r, g, _ in lignes]
-    return activites, fraiche
+    return [{"nom": n, "resume": r, "genre": g} for n, r, g, _ in lignes], fraiche
 
 
 @app.on_event("startup")
@@ -117,11 +143,41 @@ def accueil():
 def activites(recherche: str = Query("Sion")):
     if not ST_API_KEY:
         return {"erreur": "Clé API manquante."}
-
     resultats, fraiche = lire_depuis_base(recherche)
-
     if not fraiche:
         rafraichir_depuis_api(recherche)
         resultats, _ = lire_depuis_base(recherche)
+    return {"recherche": recherche, "total": len(resultats), "activites": resultats}
 
-    return {"recherche": recherche, "total": len(resultats), "activites": resultats, "servi_depuis": "base de données"}
+
+@app.get("/mes-gouts")
+def lire_mes_gouts(utilisateur_id: str = Depends(verifier_connexion)):
+    """Renvoie les scores de goûts de la personne connectée."""
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT genre, score FROM preferences WHERE utilisateur_id = %s",
+                (utilisateur_id,)
+            )
+            lignes = cur.fetchall()
+    return {"gouts": {genre: score for genre, score in lignes}}
+
+
+@app.post("/mes-gouts/{genre}")
+def maj_gout(genre: str, aime: bool, utilisateur_id: str = Depends(verifier_connexion)):
+    """Met à jour le score d'un genre pour la personne connectée.
+    aime=true → +1 point, aime=false → -0.2 point (jamais sous 0)."""
+    variation = 1.0 if aime else -0.2
+    maintenant = datetime.now(timezone.utc)
+
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO preferences (utilisateur_id, genre, score, maj_le)
+                VALUES (%s, %s, GREATEST(0, %s), %s)
+                ON CONFLICT (utilisateur_id, genre)
+                DO UPDATE SET score = GREATEST(0, preferences.score + %s), maj_le = %s
+            """, (utilisateur_id, genre, variation, maintenant, variation, maintenant))
+        conn.commit()
+
+    return {"statut": "ok", "genre": genre}
