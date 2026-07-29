@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carnet — connecté</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- ⚠️ ÉTAPE OBLIGATOIRE : remplace la valeur ci-dessous par TA clé publique Clerk (pk_test_...) -->
+<script>
+  window.CLERK_PUBLISHABLE_KEY = "pk_test_Y2VydGFpbi1tYWtvLTM4LmNsZXJrLmFjY291bnRzLmRldiQ";
+  // ⚠️ ÉTAPE OBLIGATOIRE : remplace par l'URL de TON backend Railway (sans slash à la fin)
+  window.BACKEND_URL = "https://web-production-af168.up.railway.app";
+</script>
+<script
+  async
+  crossorigin="anonymous"
+  data-clerk-publishable-key="pk_test_Y2VydGFpbi1tYWtvLTM4LmNsZXJrLmFjY291bnRzLmRldiQ"
+  id="clerk-script"
+  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  type="text/javascript"
+></script>
+
+<style>
+  :root{
+    --bg: #1C2B2E; --bg-alt: #24393D; --card: #F3ECE0; --ink: #1C2B2E;
+    --ink-soft: #4A5A5C; --accent: #BF6F3C; --accent-soft: #E3AE81;
+    --line: rgba(243,236,224,0.14); --radius: 18px;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; background: var(--bg); color: var(--card);
+    font-family: 'Public Sans', sans-serif; min-height: 100vh;
+    display:flex; align-items:center; justify-content:center; padding: 32px 16px;
+  }
+  .stage{ width: 100%; max-width: 460px; }
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--accent-soft); margin-bottom: 10px;
+  }
+  h1{ font-family:'Fraunces', serif; font-weight: 600; font-size: 30px; line-height: 1.1; margin: 0 0 12px; }
+  p.lead{ color: rgba(243,236,224,0.72); font-size: 15px; line-height: 1.55; margin: 0 0 24px; }
+  .screen{ display:none; } .screen.active{ display:block; }
+  .btn{
+    appearance:none; border:none; cursor:pointer; font-family:'Public Sans', sans-serif;
+    font-weight:600; font-size:14px; padding: 13px 22px; border-radius: 999px;
+    background: var(--accent); color: #1C2B2E; width:100%;
+  }
+  .btn-ghost{ background: transparent; color: var(--card); border: 1px solid var(--line); }
+  #clerk-auth-mount{ min-height: 300px; }
+  .card-activity{
+    background: var(--card); color: var(--ink); border-radius: var(--radius);
+    padding: 22px; margin-bottom: 14px;
+  }
+  .card-activity h3{ font-family:'Fraunces', serif; font-size: 19px; margin: 0 0 6px; }
+  .card-activity .tag{
+    font-family:'IBM Plex Mono', monospace; font-size: 11px; text-transform:uppercase;
+    color: var(--accent); margin-bottom: 6px; display:block;
+  }
+  .card-activity p{ font-size: 13.5px; color: var(--ink-soft); margin: 8px 0 0; }
+  .swipe-actions{ display:flex; justify-content:center; gap:18px; margin: 18px 0; }
+  .round-btn{
+    width:52px; height:52px; border-radius:50%; border:1px solid var(--line);
+    background: var(--bg-alt); color: var(--card); font-size: 20px; cursor:pointer;
+  }
+  .status{ font-family:'IBM Plex Mono', monospace; font-size: 12px; color: rgba(243,236,224,0.5); margin-top: 20px; }
+  .genre-pill{
+    display:inline-block; padding: 6px 14px; border-radius: 999px; margin: 4px 4px 4px 0;
+    border: 1px solid var(--line); cursor:pointer; font-size: 13px; background: var(--bg-alt);
+  }
+  .genre-pill.actif{ background: var(--accent); color: #1C2B2E; border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ÉCRAN : chargement / connexion -->
+  <div class="screen active" id="screen-auth">
+    <div class="eyebrow">Carnet</div>
+    <h1>Connexion</h1>
+    <p class="lead">Connecte-toi pour que tes goûts soient retenus d'une visite à l'autre.</p>
+    <div id="clerk-auth-mount"></div>
+    <div class="status" id="auth-status">Chargement de Clerk...</div>
+  </div>
+
+  <!-- ÉCRAN : choix du genre à explorer -->
+  <div class="screen" id="screen-genres">
+    <div class="eyebrow">Connecté</div>
+    <h1>Voyons ce qui pourrait faire envie.</h1>
+    <p class="lead">Choisis un ou plusieurs genres — les activités viennent en direct de ton serveur.</p>
+    <div id="genre-list"></div>
+    <button class="btn" style="margin-top:20px;" onclick="chargerActivites()">Voir les propositions →</button>
+    <div class="status" id="genres-status"></div>
+  </div>
+
+  <!-- ÉCRAN : activités réelles -->
+  <div class="screen" id="screen-activites">
+    <div class="eyebrow">Depuis ton serveur</div>
+    <h1 style="font-size:22px;">Voici ce qui est disponible.</h1>
+    <div id="liste-activites"></div>
+    <button class="btn btn-ghost" style="margin-top:14px;" onclick="goTo('screen-genres')">← Changer de genre</button>
+    <div class="status" id="activites-status"></div>
+  </div>
+
+</div>
+
+<script>
+  let clerk;
+  let token = null;
+
+  function goTo(id){
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  async function demarrerClerk(){
+    const statusEl = document.getElementById('auth-status');
+    try {
+      clerk = window.Clerk;
+      await clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
+
+      if (clerk.user){
+        // Déjà connecté
+        token = await clerk.session.getToken();
+        statusEl.textContent = `Connecté en tant que ${clerk.user.primaryEmailAddress?.emailAddress || clerk.user.id}`;
+        try {
+          await chargerGenresDisponibles();
+          goTo('screen-genres');
+        } catch (e2) {
+          statusEl.textContent = "Connecté, mais échec de l'appel au serveur : " + e2.message;
+          console.error(e2);
+        }
+      } else {
+        // Affiche le formulaire de connexion/inscription intégré de Clerk
+        clerk.mountSignIn(document.getElementById('clerk-auth-mount'), {
+          fallbackRedirectUrl: window.location.href,
+        });
+        statusEl.textContent = "Pas encore connecté — utilise le formulaire ci-dessus.";
+
+        // Quand la connexion réussit, Clerk redéclenche cet événement
+        clerk.addListener(async ({ user }) => {
+          if (user){
+            token = await clerk.session.getToken();
+            try {
+              await chargerGenresDisponibles();
+              goTo('screen-genres');
+            } catch (e2) {
+              statusEl.textContent = "Connecté, mais échec de l'appel au serveur : " + e2.message;
+              console.error(e2);
+            }
+          }
+        });
+      }
+    } catch (e) {
+      statusEl.textContent = "Erreur de chargement Clerk : " + e.message + " — vérifie ta clé publique en haut du fichier.";
+      console.error(e);
+    }
+  }
+
+  let genresConnus = [];
+  let genresChoisis = new Set();
+
+  async function chargerGenresDisponibles(){
+    // Pour l'étape 5, on part sur une recherche fixe "Sion" — l'étape suivante
+    // permettra de choisir la ville/le rayon depuis l'interface.
+    const res = await fetch(`${window.BACKEND_URL}/activites?recherche=Sion`);
+    const data = await res.json();
+    const genres = [...new Set((data.activites || []).map(a => a.genre))];
+    genresConnus = genres;
+
+    const wrap = document.getElementById('genre-list');
+    wrap.innerHTML = '';
+    genres.forEach(g => {
+      const pill = document.createElement('span');
+      pill.className = 'genre-pill';
+      pill.textContent = g;
+      pill.onclick = () => {
+        if (genresChoisis.has(g)) { genresChoisis.delete(g); pill.classList.remove('actif'); }
+        else { genresChoisis.add(g); pill.classList.add('actif'); }
+      };
+      wrap.appendChild(pill);
+    });
+  }
+
+  async function chargerActivites(){
+    const statusEl = document.getElementById('activites-status');
+    const res = await fetch(`${window.BACKEND_URL}/activites?recherche=Sion`);
+    const data = await res.json();
+    const filtres = genresChoisis.size
+      ? data.activites.filter(a => genresChoisis.has(a.genre))
+      : data.activites;
+
+    const wrap = document.getElementById('liste-activites');
+    wrap.innerHTML = '';
+    filtres.forEach(a => {
+      const card = document.createElement('div');
+      card.className = 'card-activity';
+      card.innerHTML = `
+        <span class="tag">${a.genre}</span>
+        <h3>${a.nom}</h3>
+        <p>${a.resume || ''}</p>
+        <div class="swipe-actions" style="justify-content:flex-start; margin-top:12px;">
+          <button class="round-btn" onclick="noterGout('${a.genre}', false)">✕</button>
+          <button class="round-btn" onclick="noterGout('${a.genre}', true)">♥</button>
+        </div>
+      `;
+      wrap.appendChild(card);
+    });
+
+    statusEl.textContent = `${filtres.length} activité(s) affichée(s), en direct depuis ${window.BACKEND_URL}`;
+    goTo('screen-activites');
+  }
+
+  async function noterGout(genre, aime){
+    if (!token){
+      alert("Pas connecté — la note ne peut pas être enregistrée.");
+      return;
+    }
+    const res = await fetch(`${window.BACKEND_URL}/mes-gouts/${genre}?aime=${aime}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    document.getElementById('activites-status').textContent =
+      `Goût "${genre}" mis à jour (${aime ? '+1' : '-0.2'}) — enregistré sur le serveur.`;
+  }
+
+  // Attend que le script Clerk soit bien chargé avant de l'utiliser
+  window.addEventListener('load', () => {
+    const verifier = setInterval(() => {
+      if (window.Clerk) {
+        clearInterval(verifier);
+        demarrerClerk();
+      }
+    }, 100);
+  });
+</script>
+
+</body>
+</html>
