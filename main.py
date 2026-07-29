@@ -65,8 +65,9 @@ def verifier_connexion(authorization: str = Header(default=None)) -> str:
         cle_signature = client.get_signing_key_from_jwt(jeton)
         contenu = jwt.decode(jeton, cle_signature.key, algorithms=["RS256"], options={"verify_aud": False})
         return contenu["sub"]  # identifiant unique et stable de la personne, fourni par Clerk
-    except Exception:
-        raise HTTPException(status_code=401, detail="Session invalide ou expirée.")
+    except Exception as e:
+        print(f"ERREUR DE VÉRIFICATION DU JETON : {type(e).__name__}: {e}")
+        raise HTTPException(status_code=401, detail=f"Session invalide : {e}")
 
 
 def get_connexion():
