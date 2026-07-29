@@ -1,4 +1,17 @@
-"""
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="Carnet - API")
+
+# Autorise le frontend à appeler ce backend depuis n'importe quel domaine.
+# Pour l'instant "*" (tout autoriser) le temps des tests — à restreindre
+# au(x) vrai(s) domaine(s) de l'appli une fois en production.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)"""
 Étape 4 — Authentification réelle (Clerk)
 ============================================
 Ajoute une vérification de connexion et une table pour stocker les goûts
