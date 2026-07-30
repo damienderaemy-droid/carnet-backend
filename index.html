@@ -87,7 +87,7 @@
   .card-activity h3{ font-family:'Fraunces', serif; font-size: 22px; margin: 0 0 6px; line-height:1.15; }
   .card-activity .meta{ font-family:'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink-soft); }
   .card-activity .art{ position:absolute; top:0; left:0; right:0; height:56%; border-radius: var(--radius) var(--radius) 0 0; opacity: 0.92; }
-  .g-nature{ background: linear-gradient(160deg, #8FB89A, #3E6B52); }
+  .g-nature{ background: url('img-nature.png') center/cover no-repeat; }
   .g-adventure{ background: linear-gradient(160deg, #E3AE81, #A6522E); }
   .g-active{ background: linear-gradient(160deg, #9FC1D9, #3E6B84); }
   .g-education{ background: linear-gradient(160deg, #D9C08F, #8A6A2E); }
@@ -288,8 +288,10 @@
     culture: `<svg viewBox="0 0 64 64"><rect x="14" y="28" width="36" height="24" fill="#F3ECE0" opacity="0.9"/><path d="M14 28V20H20V24H28V18H36V24H44V20H50V28" stroke="#F3ECE0" stroke-width="3" fill="none"/></svg>`,
     culinary: `<svg viewBox="0 0 64 64"><path d="M22 10C22 22,24 28,32 28C40 28,42 22,42 10Z" fill="#F3ECE0" opacity="0.9"/><line x1="32" y1="28" x2="32" y2="46" stroke="#F3ECE0" stroke-width="2.5"/></svg>`,
     relax: `<svg viewBox="0 0 64 64"><path d="M6 30 Q16 22,26 30 T46 30 T58 30" stroke="#F3ECE0" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg>`,
-    autre: `<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="18" stroke="#F3ECE0" stroke-width="3" fill="none"/></svg>`,
+    autre: `<svg viewBox="0 0 64 64"><path d="M32 8 L38 26 L56 26 L42 37 L47 55 L32 44 L17 55 L22 37 L8 26 L26 26 Z" fill="#F3ECE0" opacity="0.9"/></svg>`,
   };
+
+  const GENRES_AVEC_ILLUSTRATION = ["nature"]; // ajouter ici au fur et à mesure des images reçues
 
   function goTo(id){
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
@@ -425,7 +427,7 @@
       el.style.zIndex = 2-i;
       el.style.transform = i===1 ? 'scale(0.96) translateY(10px)' : 'scale(1) translateY(0)';
       el.innerHTML = `
-        <div class="art g-${a.genre}"><div class="art-icon">${SVG_ICONS[a.genre]||SVG_ICONS.autre}</div></div>
+        <div class="art g-${a.genre}">${GENRES_AVEC_ILLUSTRATION.includes(a.genre) ? '' : `<div class="art-icon">${SVG_ICONS[a.genre]||SVG_ICONS.autre}</div>`}</div>
         ${a.isDiscovery ? '<div class="discovery-flag">Découverte</div>' : ''}
         <div class="tag">${a.tag}</div><h3>${a.titre}</h3>`;
       deck.appendChild(el);
