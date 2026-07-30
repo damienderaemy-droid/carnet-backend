@@ -190,6 +190,10 @@
     <h1>Encore deux ou trois choses.</h1>
     <p class="lead">Ça ne sera plus jamais redemandé.</p>
     <div class="field-row">
+      <div class="chip-input"><label class="mini">Prénom</label><input type="text" id="p-prenom" placeholder="ex: Damien"></div>
+      <div class="chip-input"><label class="mini">Nom</label><input type="text" id="p-nom" placeholder="ex: de Raemy"></div>
+    </div>
+    <div class="field-row">
       <div class="chip-input"><label class="mini">Commune</label><input type="text" id="p-commune" placeholder="ex: Sion" value="Sion"></div>
       <div class="chip-input"><label class="mini">Tranche d'âge</label>
         <select id="p-age"><option>25–34</option><option selected>35–49</option><option>50–64</option><option>65+</option></select>
@@ -208,13 +212,23 @@
   <div class="screen" id="screen-intent">
     <div class="topnav"><button onclick="goTo('screen-profil')">←</button></div>
     <div class="eyebrow" id="welcome-back"></div>
-    <h1>Voyons ce qui se passe du côté de Sion.</h1>
+    <h1 id="intent-title">Voyons ce qui se passe du côté de Sion.</h1>
     <div class="btn-row">
       <button class="btn" onclick="chooseWindow('ce soir')">Ce soir</button>
       <button class="btn btn-ghost" onclick="chooseWindow('ce week-end')">Ce week-end</button>
       <button class="btn btn-ghost" onclick="chooseWindow('prochainement')">Prochainement, je regarde large</button>
     </div>
+    <div class="footnote" style="margin-top:16px;">
+      <button class="link-btn" onclick="ouvrirChangementLieu()">📍 Voir ailleurs qu'à <span id="lieu-actuel">Sion</span></button>
+    </div>
+    <div class="field-row" id="changement-lieu" style="display:none; margin-top:12px;">
+      <div class="chip-input">
+        <input type="text" id="lieu-temporaire" placeholder="ex: Martigny">
+      </div>
+      <button class="btn" style="width:auto; padding:11px 18px;" onclick="validerChangementLieu()">OK</button>
+    </div>
     <div class="footnote" id="memory-note" style="display:none;"></div>
+    <div class="footnote" style="margin-top:6px; opacity:0.6;">Ceci ne change pas ta commune enregistrée, juste cette recherche.</div>
   </div>
 
   <!-- SWIPE -->
@@ -339,8 +353,12 @@
       if (profil.existe){
         document.getElementById('welcome-back').textContent = `Re-bonjour, ${profil.prenom || ''}`;
         recherche = profil.commune || "Sion";
+        majTitreIntent();
         goTo('screen-intent');
       } else {
+        // Pré-remplit avec ce que Clerk connaît déjà, pour gagner du temps
+        document.getElementById('p-prenom').value = clerk.user.firstName || '';
+        document.getElementById('p-nom').value = clerk.user.lastName || '';
         goTo('screen-profil');
       }
     } catch (e) {
@@ -350,18 +368,40 @@
   }
 
   async function enregistrerProfil(){
+    const prenom = document.getElementById('p-prenom').value || clerk.user.firstName || "invité";
+    const nom = document.getElementById('p-nom').value || clerk.user.lastName || "";
     const commune = document.getElementById('p-commune').value || "Sion";
     const age = document.getElementById('p-age').value;
     const mode = document.getElementById('p-mode').value;
-    const prenom = clerk.user.firstName || clerk.user.primaryEmailAddress?.emailAddress?.split('@')[0] || "invité";
     try {
-      const params = new URLSearchParams({ prenom, commune, age, mode });
+      const params = new URLSearchParams({ prenom, nom, commune, age, mode });
       await api(`/mon-profil?${params.toString()}`, { method: 'POST' });
       recherche = commune;
+      majTitreIntent();
       goTo('screen-intent');
     } catch (e) {
       document.getElementById('profil-status').textContent = "Erreur : " + e.message;
     }
+  }
+
+  // ---- Changement de lieu ponctuel (ne touche pas au profil enregistré) ----
+  function majTitreIntent(){
+    document.getElementById('intent-title').textContent = `Voyons ce qui se passe du côté de ${recherche}.`;
+    document.getElementById('lieu-actuel').textContent = recherche;
+  }
+
+  function ouvrirChangementLieu(){
+    const bloc = document.getElementById('changement-lieu');
+    bloc.style.display = bloc.style.display === 'none' ? 'flex' : 'none';
+  }
+
+  function validerChangementLieu(){
+    const nouveauLieu = document.getElementById('lieu-temporaire').value.trim();
+    if (!nouveauLieu) return;
+    recherche = nouveauLieu; // valable pour cette recherche uniquement, pas sauvegardé
+    majTitreIntent();
+    document.getElementById('changement-lieu').style.display = 'none';
+    document.getElementById('lieu-temporaire').value = '';
   }
 
   // ---- Intention -----------------------------------------------------------
