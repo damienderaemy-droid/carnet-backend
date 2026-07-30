@@ -171,4 +171,107 @@ def lire_depuis_base(recherche: str):
     # supplémentaire par activité — on utilise donc le terme de recherche comme lieu
     # approximatif ("Sion et environs"), pas la localité exacte de chaque item.
     return [{"nom": n, "resume": r, "genre": g, "duree": d, "lieu": f"{recherche} et environs", "source_url": u}
-            for
+            for n, r, g, d, u, _ in lignes], fraiche
+
+
+@app.on_event("startup")
+def au_demarrage():
+    initialiser_base()
+
+
+@app.get("/")
+def page_application():
+    """Sert directement l'appli à l'adresse racine — plus simple à partager,
+    plus aucun risque de confusion avec le message technique."""
+    return FileResponse("index.html")
+
+
+@app.get("/status")
+def statut_technique():
+    """Vérification technique que le serveur tourne (ancien contenu de '/')."""
+    return {"statut": "ok", "message": "Le backend fonctionne !"}
+
+
+@app.get("/app")
+def page_application_alias():
+    """Ancien lien, gardé pour compatibilité avec ce qui a déjà été partagé."""
+    return FileResponse("index.html")
+
+
+@app.get("/img-{nom}.png")
+def servir_image(nom: str):
+    """Sert n'importe quelle image d'illustration (img-nature.png, img-adventure.png, etc.)
+    sans avoir à ajouter une route à chaque nouvelle image."""
+    return FileResponse(f"img-{nom}.png")
+
+
+@app.get("/activites")
+def activites(recherche: str = Query("Sion")):
+    if not ST_API_KEY:
+        return {"erreur": "Clé API manquante."}
+    resultats, fraiche = lire_depuis_base(recherche)
+    if not fraiche:
+        rafraichir_depuis_api(recherche)
+        resultats, _ = lire_depuis_base(recherche)
+    return {"recherche": recherche, "total": len(resultats), "activites": resultats}
+
+
+@app.get("/mon-profil")
+def lire_profil(utilisateur_id: str = Depends(verifier_connexion)):
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT prenom, commune, age, mode FROM profils WHERE utilisateur_id = %s", (utilisateur_id,))
+            ligne = cur.fetchone()
+    if not ligne:
+        return {"existe": False}
+    prenom, commune, age, mode = ligne
+    return {"existe": True, "prenom": prenom, "commune": commune, "age": age, "mode": mode}
+
+
+@app.post("/mon-profil")
+def maj_profil(prenom: str, commune: str, age: str, mode: str, utilisateur_id: str = Depends(verifier_connexion)):
+    maintenant = datetime.now(timezone.utc)
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO profils (utilisateur_id, prenom, commune, age, mode, maj_le)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (utilisateur_id)
+                DO UPDATE SET prenom = %s, commune = %s, age = %s, mode = %s, maj_le = %s
+            """, (utilisateur_id, prenom, commune, age, mode, maintenant,
+                  prenom, commune, age, mode, maintenant))
+        conn.commit()
+    return {"statut": "ok"}
+
+
+@app.get("/mes-gouts")
+def lire_mes_gouts(utilisateur_id: str = Depends(verifier_connexion)):
+    """Renvoie les scores de goûts de la personne connectée."""
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT genre, score FROM preferences WHERE utilisateur_id = %s",
+                (utilisateur_id,)
+            )
+            lignes = cur.fetchall()
+    return {"gouts": {genre: score for genre, score in lignes}}
+
+
+@app.post("/mes-gouts/{genre}")
+def maj_gout(genre: str, aime: bool, utilisateur_id: str = Depends(verifier_connexion)):
+    """Met à jour le score d'un genre pour la personne connectée.
+    aime=true → +1 point, aime=false → -0.2 point (jamais sous 0)."""
+    variation = 1.0 if aime else -0.2
+    maintenant = datetime.now(timezone.utc)
+
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO preferences (utilisateur_id, genre, score, maj_le)
+                VALUES (%s, %s, GREATEST(0, %s), %s)
+                ON CONFLICT (utilisateur_id, genre)
+                DO UPDATE SET score = GREATEST(0, preferences.score + %s), maj_le = %s
+            """, (utilisateur_id, genre, variation, maintenant, variation, maintenant))
+        conn.commit()
+
+    return {"statut": "ok", "genre": genre}
