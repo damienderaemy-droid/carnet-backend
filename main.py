@@ -33,6 +33,7 @@ ST_API_KEY = os.environ.get("ST_API_KEY", "")
 ST_BASE_URL = "https://opendata.myswitzerland.io/v1"
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 CLERK_JWKS_URL = os.environ.get("CLERK_JWKS_URL", "")
+EVENTFROG_API_KEY = os.environ.get("EVENTFROG_API_KEY", "")
 
 GENRE_LABELS = {
     "nature": "Nature", "adventure": "Aventure", "active": "Actif",
@@ -313,6 +314,38 @@ def maj_profil(prenom: str, nom: str, commune: str, age: str, mode: str, utilisa
                   prenom, nom, commune, age, mode, maintenant))
         conn.commit()
     return {"statut": "ok"}
+
+
+@app.get("/test-eventfrog")
+def test_eventfrog(rayon_km: float = 40.0):
+    """Endpoint de TEST uniquement — vérifie ce qu'Eventfrog renvoie pour le
+    Valais. À retirer avant tout vrai lancement, ce n'est pas fait pour durer."""
+    if not EVENTFROG_API_KEY:
+        return {"erreur": "Clé EVENTFROG_API_KEY manquante sur Railway."}
+
+    lat_sion, lon_sion = 46.2276, 7.3588  # centre approximatif du Valais
+    headers = {"Authorization": f"Bearer {EVENTFROG_API_KEY}"}
+    params = {"lat": lat_sion, "lng": lon_sion, "r": rayon_km, "country": "CH", "perPage": 50}
+
+    try:
+        resp = requests.get("https://api.eventfrog.net/public/v1/events", headers=headers, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return {"erreur": f"{type(e).__name__}: {e}"}
+
+    evenements = []
+    for ev in data.get("events", []):
+        titre = (ev.get("title") or {}).get("fr") or (ev.get("title") or {}).get("de") or "?"
+        evenements.append({
+            "titre": titre,
+            "debut": ev.get("begin"),
+            "fin": ev.get("end"),
+            "prix_min": ev.get("lowestTicketPrice"),
+            "lien": ev.get("url"),
+        })
+
+    return {"total_disponible": data.get("totalNumberOfResources"), "recus": len(evenements), "evenements": evenements}
 
 
 @app.get("/mes-gouts")
