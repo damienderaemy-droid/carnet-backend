@@ -502,6 +502,21 @@
   // ---- Digest ---------------------------------------------------------------
   let currentPicks = [];
 
+  function formatDateHeure(debutIso, finIso){
+    if (!debutIso) return null;
+    const debut = new Date(debutIso);
+    const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+    const jourDebut = debut.toLocaleDateString('fr-CH', options);
+    const heureDebut = debut.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
+    if (!finIso) return `${jourDebut}, ${heureDebut}`;
+    const fin = new Date(finIso);
+    const memeJour = debut.toDateString() === fin.toDateString();
+    const heureFin = fin.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
+    if (memeJour) return `${jourDebut}, de ${heureDebut} à ${heureFin}`;
+    const jourFin = fin.toLocaleDateString('fr-CH', options);
+    return `Du ${jourDebut} au ${jourFin}`;
+  }
+
   function buildDigest(){
     const list = document.getElementById('digest-list');
     list.innerHTML = '';
@@ -515,11 +530,17 @@
     currentPicks.forEach((a,i) => {
       const card = document.createElement('div');
       card.className = 'digest-card';
+      const dateReelle = formatDateHeure(a.debut, a.fin);
+      const ligneDate = dateReelle
+        ? dateReelle
+        : "Date possible : toute l'année · Horaires : accès libre";
+      const lignePrix = (a.prix_min != null) ? ` · dès ${a.prix_min} CHF` : '';
+      const ligneMeta2 = a.duree ? `${a.lieu} · ${a.duree}` : a.lieu;
       card.innerHTML = `
         <div class="num">0${i+1}</div>
         <h3>${a.nom}</h3>
-        <div class="meta">${a.lieu} · ${a.duree} · ${a.tagLabel}${a.isDiscovery?' · Surprise':''}</div>
-        <div class="meta">Date possible : toute l'année · Horaires : accès libre</div>
+        <div class="meta">${ligneMeta2} · ${a.tagLabel}${a.isDiscovery?' · Surprise':''}</div>
+        <div class="meta">${ligneDate}${lignePrix}</div>
         <div class="resume">${a.resume||''}</div>
         <div class="digest-actions"><button class="link-btn" onclick="openFiche(${i})">Voir la fiche →</button></div>`;
       list.appendChild(card);
@@ -531,10 +552,12 @@
     const a = currentPicks[i];
     document.getElementById('fiche-tag').textContent = a.tagLabel;
     document.getElementById('fiche-title').textContent = a.nom;
-    document.getElementById('fiche-meta').textContent = `${a.lieu} · ${a.duree}`;
+    const dateReelle = formatDateHeure(a.debut, a.fin);
+    const metaLigne = a.duree ? `${a.lieu} · ${a.duree}` : a.lieu;
+    document.getElementById('fiche-meta').textContent = dateReelle ? `${metaLigne} · ${dateReelle}` : metaLigne;
     document.getElementById('fiche-book').href = a.source_url || '#';
     document.getElementById('fiche-backlink').href = a.source_url || '#';
-    document.getElementById('fiche-ics').href = buildIcs(a.nom, a.lieu);
+    document.getElementById('fiche-ics').href = buildIcs(a.nom, a.lieu, a.debut, a.fin);
     document.getElementById('fiche-ics').setAttribute('download', a.nom.replace(/[^a-z0-9]/gi,'_')+'.ics');
     const shareText = `${a.nom} — ${a.lieu}. Envie d'y aller ensemble ?`;
     document.getElementById('fiche-whatsapp').href = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
@@ -542,9 +565,15 @@
     document.getElementById('modal-overlay').classList.add('open');
   }
   function closeFiche(){ document.getElementById('modal-overlay').classList.remove('open'); }
-  function buildIcs(titre, lieu){
-    const start = new Date(); start.setDate(start.getDate()+3); start.setHours(19,0,0,0);
-    const end = new Date(start); end.setHours(21,0,0,0);
+  function buildIcs(titre, lieu, debutIso, finIso){
+    let start, end;
+    if (debutIso){
+      start = new Date(debutIso);
+      end = finIso ? new Date(finIso) : new Date(start.getTime() + 2*60*60*1000);
+    } else {
+      start = new Date(); start.setDate(start.getDate()+3); start.setHours(19,0,0,0);
+      end = new Date(start); end.setHours(21,0,0,0);
+    }
     const fmt = d => d.toISOString().replace(/[-:]/g,'').split('.')[0]+'Z';
     const ics = ['BEGIN:VCALENDAR','VERSION:2.0','BEGIN:VEVENT',`DTSTART:${fmt(start)}`,`DTEND:${fmt(end)}`,`SUMMARY:${titre}`,`DESCRIPTION:${lieu}`,'END:VEVENT','END:VCALENDAR'].join('\n');
     return 'data:text/calendar;charset=utf-8,'+encodeURIComponent(ics);
