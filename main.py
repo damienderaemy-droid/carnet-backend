@@ -98,10 +98,11 @@ def initialiser_base():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS profils (
                     utilisateur_id TEXT PRIMARY KEY,
-                    prenom TEXT, commune TEXT, age TEXT, mode TEXT,
+                    prenom TEXT, nom TEXT, commune TEXT, age TEXT, mode TEXT,
                     maj_le TIMESTAMPTZ NOT NULL
                 );
             """)
+            cur.execute("ALTER TABLE profils ADD COLUMN IF NOT EXISTS nom TEXT;")
             # Si la table 'activites' existait déjà sans ces colonnes (versions précédentes)
             cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS source_url TEXT;")
             cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS duree TEXT;")
@@ -220,26 +221,26 @@ def activites(recherche: str = Query("Sion")):
 def lire_profil(utilisateur_id: str = Depends(verifier_connexion)):
     with get_connexion() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT prenom, commune, age, mode FROM profils WHERE utilisateur_id = %s", (utilisateur_id,))
+            cur.execute("SELECT prenom, nom, commune, age, mode FROM profils WHERE utilisateur_id = %s", (utilisateur_id,))
             ligne = cur.fetchone()
     if not ligne:
         return {"existe": False}
-    prenom, commune, age, mode = ligne
-    return {"existe": True, "prenom": prenom, "commune": commune, "age": age, "mode": mode}
+    prenom, nom, commune, age, mode = ligne
+    return {"existe": True, "prenom": prenom, "nom": nom, "commune": commune, "age": age, "mode": mode}
 
 
 @app.post("/mon-profil")
-def maj_profil(prenom: str, commune: str, age: str, mode: str, utilisateur_id: str = Depends(verifier_connexion)):
+def maj_profil(prenom: str, nom: str, commune: str, age: str, mode: str, utilisateur_id: str = Depends(verifier_connexion)):
     maintenant = datetime.now(timezone.utc)
     with get_connexion() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO profils (utilisateur_id, prenom, commune, age, mode, maj_le)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO profils (utilisateur_id, prenom, nom, commune, age, mode, maj_le)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (utilisateur_id)
-                DO UPDATE SET prenom = %s, commune = %s, age = %s, mode = %s, maj_le = %s
-            """, (utilisateur_id, prenom, commune, age, mode, maintenant,
-                  prenom, commune, age, mode, maintenant))
+                DO UPDATE SET prenom = %s, nom = %s, commune = %s, age = %s, mode = %s, maj_le = %s
+            """, (utilisateur_id, prenom, nom, commune, age, mode, maintenant,
+                  prenom, nom, commune, age, mode, maintenant))
         conn.commit()
     return {"statut": "ok"}
 
