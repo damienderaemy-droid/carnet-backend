@@ -90,7 +90,7 @@
   .g-nature{ background: url('img-nature.png') center/cover no-repeat; }
   .g-adventure{ background: url('img-adventure.png') center/cover no-repeat; }
   .g-active{ background: linear-gradient(160deg, #9FC1D9, #3E6B84); }
-  .g-education{ background: linear-gradient(160deg, #D9C08F, #8A6A2E); }
+  .g-education{ background: url('img-education.png') center/cover no-repeat; }
   .g-culture{ background: linear-gradient(160deg, #C9A6C9, #6E3E6B); }
   .g-culinary{ background: linear-gradient(160deg, #D98F8F, #7A2E2E); }
   .g-relax{ background: linear-gradient(160deg, #9FD9CE, #2E7A6E); }
@@ -291,7 +291,7 @@
     autre: `<svg viewBox="0 0 64 64"><path d="M32 8 L38 26 L56 26 L42 37 L47 55 L32 44 L17 55 L22 37 L8 26 L26 26 Z" fill="#F3ECE0" opacity="0.9"/></svg>`,
   };
 
-  const GENRES_AVEC_ILLUSTRATION = ["nature", "adventure"]; // ajouter ici au fur et à mesure des images reçues
+  const GENRES_AVEC_ILLUSTRATION = ["nature", "adventure", "education"]; // ajouter ici au fur et à mesure des images reçues
 
   function goTo(id){
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
