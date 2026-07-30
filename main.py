@@ -317,15 +317,19 @@ def maj_profil(prenom: str, nom: str, commune: str, age: str, mode: str, utilisa
 
 
 @app.get("/test-eventfrog")
-def test_eventfrog(rayon_km: float = 40.0):
+def test_eventfrog():
     """Endpoint de TEST uniquement — vérifie ce qu'Eventfrog renvoie pour le
     Valais. À retirer avant tout vrai lancement, ce n'est pas fait pour durer."""
     if not EVENTFROG_API_KEY:
         return {"erreur": "Clé EVENTFROG_API_KEY manquante sur Railway."}
 
-    lat_sion, lon_sion = 46.2276, 7.3588  # centre approximatif du Valais
+    # Codes postaux valaisans (Bas-Valais 1870-1998, Haut-Valais 3900-3999).
+    # Plus précis qu'un rayon en km, qui déborde sur les cantons voisins
+    # vu la forme tout en longueur du Valais.
+    npa_valais = [str(n) for n in list(range(1870, 1999)) + list(range(3900, 4000))]
+
     headers = {"Authorization": f"Bearer {EVENTFROG_API_KEY}"}
-    params = {"lat": lat_sion, "lng": lon_sion, "r": rayon_km, "country": "CH", "perPage": 50}
+    params = {"zip": npa_valais, "country": "CH", "perPage": 50}
 
     try:
         resp = requests.get("https://api.eventfrog.net/public/v1/events", headers=headers, params=params, timeout=15)
@@ -336,7 +340,9 @@ def test_eventfrog(rayon_km: float = 40.0):
 
     evenements = []
     for ev in data.get("events", []):
-        titre = (ev.get("title") or {}).get("fr") or (ev.get("title") or {}).get("de") or "?"
+        titre_dict = ev.get("title") or {}
+        titre = titre_dict.get("fr") or titre_dict.get("de") or titre_dict.get("en") or titre_dict.get("it") \
+            or next(iter(titre_dict.values()), "?")
         evenements.append({
             "titre": titre,
             "debut": ev.get("begin"),
