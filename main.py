@@ -83,6 +83,7 @@ def initialiser_base():
                     id SERIAL PRIMARY KEY,
                     recherche TEXT NOT NULL,
                     nom TEXT, resume TEXT, genre TEXT, duree TEXT, source_url TEXT,
+                    lat DOUBLE PRECISION, lon DOUBLE PRECISION,
                     recupere_le TIMESTAMPTZ NOT NULL
                 );
             """)
@@ -106,7 +107,44 @@ def initialiser_base():
             # Si la table 'activites' existait déjà sans ces colonnes (versions précédentes)
             cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS source_url TEXT;")
             cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS duree TEXT;")
+            cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;")
+            cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION;")
         conn.commit()
+
+
+import math
+
+def geocoder_commune(nom: str):
+    """Trouve les coordonnées GPS d'une commune suisse via l'API officielle
+    geo.admin.ch (gratuite, sans clé). Renvoie (lat, lon) ou None si introuvable."""
+    try:
+        resp = requests.get(
+            "https://api3.geo.admin.ch/rest/services/api/SearchServer",
+            params={"searchText": nom, "type": "locations", "limit": 1, "sr": 4326},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        resultats = resp.json().get("results", [])
+        if not resultats:
+            return None
+        attrs = resultats[0].get("attrs", {})
+        lat, lon = attrs.get("lat"), attrs.get("lon")
+        if lat is None or lon is None:
+            return None
+        return float(lat), float(lon)
+    except Exception as e:
+        print(f"Géocodage impossible pour '{nom}' : {e}")
+        return None
+
+
+def distance_km(lat1, lon1, lat2, lon2):
+    """Distance à vol d'oiseau entre deux points GPS (formule de Haversine)."""
+    R = 6371
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
 
 
 def appeler_api_st(endpoint: str, params: dict):
@@ -142,37 +180,49 @@ def extraire_duree(classification: list) -> str:
     return "variable"
 
 
-def rafraichir_depuis_api(recherche: str):
-    data = appeler_api_st("attractions", {"query": recherche, "expand": "false"})
+POOL_KEY = "Valais"  # on interroge tout le canton une fois, puis on filtre par distance réelle
+
+
+def rafraichir_depuis_api(recherche: str = POOL_KEY):
+    """Récupère un large pool d'activités valaisannes (plusieurs pages),
+    avec leurs coordonnées GPS réelles pour un filtrage par distance ensuite."""
     maintenant = datetime.now(timezone.utc)
+    vus = {}
+    for page in range(5):  # jusqu'à 5 pages de 50 = 250 activités environ
+        data = appeler_api_st("attractions", {"query": POOL_KEY, "expand": "false", "page": page, "hitsPerPage": 50})
+        items = data.get("data", [])
+        if not items:
+            break
+        for item in items:
+            vus[item.get("identifier")] = item
+
     with get_connexion() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM activites WHERE recherche = %s", (recherche,))
-            for item in data.get("data", []):
+            cur.execute("DELETE FROM activites WHERE recherche = %s", (POOL_KEY,))
+            for item in vus.values():
                 classification = item.get("classification")
+                geo = item.get("geo") or {}
                 cur.execute(
-                    "INSERT INTO activites (recherche, nom, resume, genre, duree, source_url, recupere_le) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (recherche, item.get("name"), item.get("abstract"),
+                    "INSERT INTO activites (recherche, nom, resume, genre, duree, source_url, lat, lon, recupere_le) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (POOL_KEY, item.get("name"), item.get("abstract"),
                      extraire_genre(classification), extraire_duree(classification),
-                     item.get("links", {}).get("self"), maintenant)
+                     item.get("links", {}).get("self"), geo.get("latitude"), geo.get("longitude"),
+                     maintenant)
                 )
         conn.commit()
 
 
-def lire_depuis_base(recherche: str):
+def lire_depuis_base(recherche: str = POOL_KEY):
     with get_connexion() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT nom, resume, genre, duree, source_url, recupere_le FROM activites WHERE recherche = %s", (recherche,))
+            cur.execute("SELECT nom, resume, genre, duree, source_url, lat, lon, recupere_le FROM activites WHERE recherche = %s", (POOL_KEY,))
             lignes = cur.fetchall()
     if not lignes:
         return [], False
-    _, _, _, _, _, recupere_le = lignes[0]
+    recupere_le = lignes[0][7]
     fraiche = (datetime.now(timezone.utc) - recupere_le) < timedelta(hours=24)
-    # NOTE : le lieu précis (commune exacte) n'est pas fiable sans un appel détaillé
-    # supplémentaire par activité — on utilise donc le terme de recherche comme lieu
-    # approximatif ("Sion et environs"), pas la localité exacte de chaque item.
-    return [{"nom": n, "resume": r, "genre": g, "duree": d, "lieu": f"{recherche} et environs", "source_url": u}
-            for n, r, g, d, u, _ in lignes], fraiche
+    return [{"nom": n, "resume": r, "genre": g, "duree": d, "source_url": u, "lat": la, "lon": lo}
+            for n, r, g, d, u, la, lo, _ in lignes], fraiche
 
 
 @app.on_event("startup")
@@ -207,14 +257,34 @@ def servir_image(nom: str):
 
 
 @app.get("/activites")
-def activites(recherche: str = Query("Sion")):
+def activites(recherche: str = Query("Sion"), rayon_km: float = Query(20.0)):
     if not ST_API_KEY:
         return {"erreur": "Clé API manquante."}
-    resultats, fraiche = lire_depuis_base(recherche)
+
+    pool, fraiche = lire_depuis_base()
     if not fraiche:
-        rafraichir_depuis_api(recherche)
-        resultats, _ = lire_depuis_base(recherche)
-    return {"recherche": recherche, "total": len(resultats), "activites": resultats}
+        rafraichir_depuis_api()
+        pool, _ = lire_depuis_base()
+
+    centre = geocoder_commune(recherche)
+    if centre is None:
+        # Géocodage impossible : on renvoie le pool complet, sans filtrage par distance,
+        # plutôt que de bloquer complètement la recherche.
+        resultats = [{**a, "lieu": "Valais", "distance_km": None} for a in pool]
+        return {"recherche": recherche, "rayon_km": rayon_km, "total": len(resultats),
+                "activites": resultats, "avertissement": "Commune non géolocalisée, distance non calculée."}
+
+    lat_c, lon_c = centre
+    resultats = []
+    for a in pool:
+        if a["lat"] is None or a["lon"] is None:
+            continue
+        d = distance_km(lat_c, lon_c, a["lat"], a["lon"])
+        if d <= rayon_km:
+            resultats.append({**a, "lieu": f"à {round(d)} km de {recherche}", "distance_km": round(d, 1)})
+
+    resultats.sort(key=lambda a: a["distance_km"])
+    return {"recherche": recherche, "rayon_km": rayon_km, "total": len(resultats), "activites": resultats}
 
 
 @app.get("/mon-profil")
