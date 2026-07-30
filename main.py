@@ -1,516 +1,270 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Carnet</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+"""
+Étape 4 — Authentification réelle (Clerk)
+============================================
+Ajoute une vérification de connexion et une table pour stocker les goûts
+de chaque utilisateur, liés à son vrai compte (pas au navigateur).
+"""
 
-<script>
-  window.CLERK_PUBLISHABLE_KEY = "pk_test_Y2VydGFpbi1tYWtvLTM4LmNsZXJrLmFjY291bnRzLmRldiQ";
-  window.BACKEND_URL = "https://web-production-af168.up.railway.app";
-</script>
-<script
-  async
-  crossorigin="anonymous"
-  data-clerk-publishable-key="pk_test_Y2VydGFpbi1tYWtvLTM4LmNsZXJrLmFjY291bnRzLmRldiQ"
-  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
-  type="text/javascript"
-></script>
+import os
+from datetime import datetime, timedelta, timezone
 
-<style>
-  :root{
-    --bg: #1C2B2E; --bg-alt: #24393D; --card: #F3ECE0; --ink: #1C2B2E;
-    --ink-soft: #4A5A5C; --accent: #BF6F3C; --accent-soft: #E3AE81;
-    --line: rgba(243,236,224,0.14); --line-dark: rgba(28,43,46,0.12); --radius: 18px;
-  }
-  *{ box-sizing: border-box; }
-  html,body{ height:100%; }
-  body{
-    margin:0; background: var(--bg); color: var(--card); font-family: 'Public Sans', sans-serif;
-    min-height: 100vh; display:flex; align-items:center; justify-content:center; padding: 32px 16px; overflow-x:hidden;
-  }
-  .stage{ width: 100%; max-width: 460px; position: relative; }
-  .eyebrow{
-    font-family:'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
-    color: var(--accent-soft); margin-bottom: 10px; display:flex; align-items:center; gap:8px;
-  }
-  .eyebrow::before{ content:''; width: 18px; height:1px; background: var(--accent-soft); display:inline-block; }
-  h1{ font-family:'Fraunces', serif; font-weight: 600; font-size: 30px; line-height: 1.1; margin: 0 0 12px; }
-  p.lead{ color: rgba(243,236,224,0.72); font-size: 15px; line-height: 1.55; margin: 0 0 24px; max-width: 40ch; }
-  .screen{ display:none; } .screen.active{ display:block; animation: rise .4s ease both; }
-  @keyframes rise{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+import requests
+import psycopg2
+import jwt
+from jwt import PyJWKClient
+from fastapi import FastAPI, Query, Header, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
-  .field-row{ display:flex; gap:10px; margin-bottom: 12px; flex-wrap: wrap; }
-  .chip-input{ flex:1; min-width: 140px; }
-  label.mini{ display:block; font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.06em;
-    text-transform:uppercase; color: rgba(243,236,224,0.5); margin-bottom:6px; }
-  select, input[type=text]{
-    width:100%; background: var(--bg-alt); border: 1px solid var(--line); color: var(--card);
-    padding: 11px 12px; border-radius: 10px; font-family:'Public Sans', sans-serif; font-size: 14px;
-  }
-  select:focus, input:focus{ outline: 2px solid var(--accent-soft); outline-offset:1px; }
-  input:-webkit-autofill{ -webkit-text-fill-color: var(--card); -webkit-box-shadow: 0 0 0px 1000px var(--bg-alt) inset;
-    transition: background-color 9999s ease-in-out 0s; caret-color: var(--card); }
+app = FastAPI(title="Carnet - API")
 
-  .btn{ appearance:none; border:none; cursor:pointer; font-family:'Public Sans', sans-serif; font-weight:600;
-    font-size:14px; padding: 13px 22px; border-radius: 999px; background: var(--accent); color: #1C2B2E;
-    transition: transform .15s ease, background .15s ease; width:100%; }
-  .btn:hover{ background: var(--accent-soft); transform: translateY(-1px); }
-  .btn-ghost{ background: transparent; color: var(--card); border: 1px solid var(--line); }
-  .btn-ghost:hover{ background: rgba(243,236,224,0.06); }
-  .btn-row{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
+# Autorise le frontend à appeler ce backend depuis n'importe quel domaine.
+# Pour l'instant "*" (tout autoriser) le temps des tests — à restreindre
+# au(x) vrai(s) domaine(s) de l'appli une fois en production.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-  .topnav{ display:flex; align-items:center; gap:10px; margin-bottom: 18px; }
-  .topnav button{ appearance:none; border:none; cursor:pointer; background: var(--bg-alt); color: var(--card);
-    width:34px; height:34px; border-radius: 50%; font-size:16px; }
-  .topnav button:hover{ background: rgba(243,236,224,0.12); }
+ST_API_KEY = os.environ.get("ST_API_KEY", "")
+ST_BASE_URL = "https://opendata.myswitzerland.io/v1"
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+CLERK_JWKS_URL = os.environ.get("CLERK_JWKS_URL", "")
 
-  #clerk-auth-mount{ min-height: 260px; }
+GENRE_LABELS = {
+    "nature": "Nature", "adventure": "Aventure", "active": "Actif",
+    "education": "Découverte", "culture": "Culture",
+    "culinary": "Culinaire", "relax": "Détente",
+}
 
-  .deck{ position: relative; height: 400px; margin-bottom: 18px; }
-  .card-activity{
-    position:absolute; inset:0; background: var(--card); color: var(--ink); border-radius: var(--radius);
-    padding: 22px; box-shadow: 0 20px 40px rgba(0,0,0,0.35); display:flex; flex-direction:column;
-    justify-content:flex-end; transition: transform .35s cubic-bezier(.2,.8,.2,1), opacity .3s ease;
-  }
-  .card-activity.discovery{ border: 2px dashed var(--accent); }
-  .discovery-flag{ display:inline-block; font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.08em;
-    text-transform:uppercase; background: var(--accent); color: #1C2B2E; padding: 3px 8px; border-radius: 999px;
-    position:relative; z-index:2; margin:14px 0 0 14px; }
-  .card-activity .tag{ font-family:'IBM Plex Mono', monospace; font-size: 11px; letter-spacing:.06em;
-    text-transform:uppercase; color: var(--accent); margin-bottom: 8px; }
-  .card-activity h3{ font-family:'Fraunces', serif; font-size: 22px; margin: 0 0 6px; line-height:1.15; }
-  .card-activity .meta{ font-family:'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink-soft); }
-  .card-activity .art{ position:absolute; top:0; left:0; right:0; height:56%; border-radius: var(--radius) var(--radius) 0 0; opacity: 0.92; }
-  .g-nature{ background: linear-gradient(160deg, #8FB89A, #3E6B52); }
-  .g-adventure{ background: linear-gradient(160deg, #E3AE81, #A6522E); }
-  .g-active{ background: linear-gradient(160deg, #9FC1D9, #3E6B84); }
-  .g-education{ background: linear-gradient(160deg, #D9C08F, #8A6A2E); }
-  .g-culture{ background: linear-gradient(160deg, #C9A6C9, #6E3E6B); }
-  .g-culinary{ background: linear-gradient(160deg, #D98F8F, #7A2E2E); }
-  .g-relax{ background: linear-gradient(160deg, #9FD9CE, #2E7A6E); }
-  .g-autre{ background: linear-gradient(160deg, #B7B7A8, #5A5A4E); }
-  .art-icon{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
-  .art-icon svg{ width:60px; height:60px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)); }
+_jwks_client = None
 
-  .swipe-actions{ display:flex; justify-content: center; gap: 22px; margin-bottom: 18px; }
-  .round-btn{ width:56px; height:56px; border-radius:50%; border:1px solid var(--line); background: var(--bg-alt);
-    color: var(--card); font-size: 22px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
-  .round-btn:hover{ transform: scale(1.06); }
-  .round-btn.pass{ color:#E39A9A; } .round-btn.like{ color: var(--accent-soft); }
 
-  .progress{ display:flex; gap:6px; margin-bottom: 22px; }
-  .progress span{ height:3px; flex:1; background: var(--line); border-radius:2px; overflow:hidden; }
-  .progress span i{ display:block; height:100%; width:0%; background: var(--accent); transition: width .3s ease; }
+def get_jwks_client():
+    """Le client JWKS est mis en cache pour ne pas le recréer à chaque appel."""
+    global _jwks_client
+    if _jwks_client is None and CLERK_JWKS_URL:
+        _jwks_client = PyJWKClient(CLERK_JWKS_URL)
+    return _jwks_client
 
-  .digest-card{ background: var(--bg-alt); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; position: relative; }
-  .digest-card .num{ font-family:'Fraunces', serif; font-size: 13px; color: var(--accent-soft); position:absolute; top:20px; right:20px; }
-  .digest-card h3{ font-family:'Fraunces', serif; font-size:20px; margin: 0 0 6px; padding-right: 30px; }
-  .digest-card .meta{ font-family:'IBM Plex Mono', monospace; font-size:12px; color: rgba(243,236,224,0.55); margin-bottom: 6px; }
-  .digest-card .resume{ font-size: 13.5px; color: rgba(243,236,224,0.8); margin-bottom: 12px; }
-  .note{ border-left: 2px solid var(--accent); padding-left: 12px; font-size: 13px; line-height:1.5; color: rgba(243,236,224,0.85); font-style: italic; margin-bottom: 14px; }
-  .digest-actions{ display:flex; gap:10px; }
-  .link-btn{ font-family:'IBM Plex Mono', monospace; font-size:12px; color: var(--accent-soft); text-decoration:none; cursor:pointer; background:none; border:none; }
-  .link-btn:hover{ text-decoration: underline; }
 
-  .footnote{ margin-top: 24px; font-size: 12.5px; color: rgba(243,236,224,0.4); line-height:1.5; }
+def verifier_connexion(authorization: str = Header(default=None)) -> str:
+    """Vérifie le jeton envoyé par le frontend et renvoie l'identifiant Clerk
+    de la personne connectée. Bloque la requête si le jeton est absent/invalide."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Non connecté.")
 
-  .modal-overlay{ display:none; position: fixed; inset:0; background: rgba(0,0,0,0.55); align-items:center; justify-content:center; padding: 20px; z-index: 50; }
-  .modal-overlay.open{ display:flex; }
-  .modal{ background: var(--card); color: var(--ink); border-radius: var(--radius); max-width: 400px; width:100%; padding: 24px; position: relative; }
-  .modal-close{ position:absolute; top:16px; right:16px; background:none; border:none; cursor:pointer; font-size:18px; color: var(--ink-soft); }
-  .modal .tag-pill{ font-family:'IBM Plex Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color: var(--accent); margin-bottom:8px; display:block; }
-  .modal h3{ font-family:'Fraunces', serif; font-size: 22px; margin: 0 0 10px; }
-  .modal .meta-line{ font-family:'IBM Plex Mono', monospace; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 4px; }
-  .modal .divider{ height:1px; background: var(--line-dark); margin: 16px 0; }
-  .modal .source-line{ font-size: 12px; color: var(--ink-soft); margin-bottom: 16px; }
-  .modal .source-line a{ color: var(--ink); }
-  .modal-actions{ display:flex; flex-direction:column; gap:8px; }
-  .modal-btn{ display:flex; align-items:center; justify-content:center; gap:8px; padding: 11px; border-radius: 10px;
-    font-family:'Public Sans', sans-serif; font-weight:600; font-size:13.5px; text-decoration:none; cursor:pointer; border:none; }
-  .modal-btn.primary{ background: var(--accent); color:#1C2B2E; }
-  .modal-btn.secondary{ background: #EDE6D8; color: var(--ink); }
-  .share-row{ display:flex; gap:8px; } .share-row .modal-btn{ flex:1; }
+    jeton = authorization.removeprefix("Bearer ").strip()
+    client = get_jwks_client()
+    if client is None:
+        raise HTTPException(status_code=500, detail="Authentification mal configurée côté serveur.")
 
-  .landing-hero h1{ font-size: 34px; margin: 0 0 16px; }
-  .mini-stack{ position: relative; height: 140px; margin: 8px 0 32px; }
-  .mini-card{ position:absolute; top:0; left:0; width: 180px; height:120px; background: var(--card); color: var(--ink);
-    border-radius: 14px; padding: 14px; box-shadow: 0 14px 28px rgba(0,0,0,0.3); display:flex; flex-direction:column; justify-content:flex-end; }
-  .mini-card .mini-tag{ font-family:'IBM Plex Mono', monospace; font-size:9px; text-transform:uppercase; letter-spacing:.06em; color: var(--accent); margin-bottom:4px; }
-  .mini-card h4{ font-family:'Fraunces', serif; font-size:14px; margin:0; line-height:1.2; }
-  .mini-card.c1{ transform: rotate(-8deg) translate(0,10px); z-index:1; }
-  .mini-card.c2{ transform: rotate(4deg) translate(70px,-4px); z-index:2; }
-  .mini-card.c3{ transform: rotate(-3deg) translate(140px,14px); z-index:1; opacity:0.9; }
-  .feature-strip{ display:flex; flex-direction:column; gap:14px; margin-bottom: 30px; padding-top: 20px; border-top: 1px solid var(--line); }
-  .feature-row{ font-size:14px; color: rgba(243,236,224,0.85); }
+    try:
+        cle_signature = client.get_signing_key_from_jwt(jeton)
+        contenu = jwt.decode(jeton, cle_signature.key, algorithms=["RS256"], options={"verify_aud": False})
+        return contenu["sub"]  # identifiant unique et stable de la personne, fourni par Clerk
+    except Exception as e:
+        print(f"ERREUR DE VÉRIFICATION DU JETON : {type(e).__name__}: {e}")
+        raise HTTPException(status_code=401, detail=f"Session invalide : {e}")
 
-  .status{ font-family:'IBM Plex Mono', monospace; font-size: 12px; color: rgba(243,236,224,0.5); margin-top: 16px; }
-</style>
-</head>
-<body>
 
-<div class="stage">
+def get_connexion():
+    return psycopg2.connect(DATABASE_URL)
 
-  <!-- LANDING -->
-  <div class="screen active" id="screen-landing">
-    <div class="eyebrow">Carnet</div>
-    <div class="landing-hero"><h1>Du temps libre.<br>Et si on s'en occupait ?</h1></div>
-    <p class="lead">Le Valais regorge d'idées de sorties. Voici un carnet qui prend note des goûts, et qui propose au bon moment — sans liste de 200 idées à trier.</p>
-    <div class="mini-stack">
-      <div class="mini-card c3"><div class="mini-tag">Culinaire</div><h4>Chemin viticole, Martigny</h4></div>
-      <div class="mini-card c1"><div class="mini-tag">Nature</div><h4>Gorges du Durnand</h4></div>
-      <div class="mini-card c2"><div class="mini-tag">Aventure</div><h4>Lac souterrain, St-Léonard</h4></div>
-    </div>
-    <div class="feature-strip">
-      <div class="feature-row">Des activités en Valais, choisies selon les goûts — nature, culture, gastronomie, détente et plus encore.</div>
-      <div class="feature-row">Quelques cartes à parcourir, pas de formulaire interminable à remplir.</div>
-      <div class="feature-row">Les suggestions s'affinent à chaque visite, pour tomber de plus en plus juste.</div>
-    </div>
-    <button class="btn" onclick="goTo('screen-auth')">Découvrir →</button>
-  </div>
 
-  <!-- AUTH (Clerk) -->
-  <div class="screen" id="screen-auth">
-    <div class="topnav"><button onclick="goTo('screen-landing')">←</button></div>
-    <div class="eyebrow">Carnet — connexion</div>
-    <h1>Quelques infos, et c'est réglé.</h1>
-    <p class="lead">Trente secondes, une fois pour toutes.</p>
-    <div id="clerk-auth-mount"></div>
-    <div class="status" id="auth-status">Chargement...</div>
-  </div>
+def initialiser_base():
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS activites (
+                    id SERIAL PRIMARY KEY,
+                    recherche TEXT NOT NULL,
+                    nom TEXT, resume TEXT, genre TEXT, duree TEXT, source_url TEXT,
+                    recupere_le TIMESTAMPTZ NOT NULL
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS preferences (
+                    utilisateur_id TEXT NOT NULL,
+                    genre TEXT NOT NULL,
+                    score REAL NOT NULL DEFAULT 0,
+                    maj_le TIMESTAMPTZ NOT NULL,
+                    PRIMARY KEY (utilisateur_id, genre)
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS profils (
+                    utilisateur_id TEXT PRIMARY KEY,
+                    prenom TEXT, commune TEXT, age TEXT, mode TEXT,
+                    maj_le TIMESTAMPTZ NOT NULL
+                );
+            """)
+            # Si la table 'activites' existait déjà sans ces colonnes (versions précédentes)
+            cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS source_url TEXT;")
+            cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS duree TEXT;")
+        conn.commit()
 
-  <!-- PROFIL (une fois, après 1ère connexion) -->
-  <div class="screen" id="screen-profil">
-    <div class="eyebrow">Carnet — profil</div>
-    <h1>Encore deux ou trois choses.</h1>
-    <p class="lead">Ça ne sera plus jamais redemandé.</p>
-    <div class="field-row">
-      <div class="chip-input"><label class="mini">Commune</label><input type="text" id="p-commune" placeholder="ex: Sion" value="Sion"></div>
-      <div class="chip-input"><label class="mini">Tranche d'âge</label>
-        <select id="p-age"><option>25–34</option><option selected>35–49</option><option>50–64</option><option>65+</option></select>
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="chip-input"><label class="mini">Suggestions</label>
-        <select id="p-mode"><option>Envoie-moi des idées (push)</option><option>Je regarde quand j'ai un trou (sur demande)</option></select>
-      </div>
-    </div>
-    <button class="btn" onclick="enregistrerProfil()">Continuer →</button>
-    <div class="status" id="profil-status"></div>
-  </div>
 
-  <!-- INTENTION -->
-  <div class="screen" id="screen-intent">
-    <div class="topnav"><button onclick="goTo('screen-profil')">←</button></div>
-    <div class="eyebrow" id="welcome-back"></div>
-    <h1>Voyons ce qui se passe du côté de Sion.</h1>
-    <div class="btn-row">
-      <button class="btn" onclick="chooseWindow('ce soir')">Ce soir</button>
-      <button class="btn btn-ghost" onclick="chooseWindow('ce week-end')">Ce week-end</button>
-      <button class="btn btn-ghost" onclick="chooseWindow('prochainement')">Prochainement, je regarde large</button>
-    </div>
-    <div class="footnote" id="memory-note" style="display:none;"></div>
-  </div>
+def appeler_api_st(endpoint: str, params: dict):
+    headers = {"x-api-key": ST_API_KEY, "Accept": "application/json"}
+    params.setdefault("lang", "fr")
+    resp = requests.get(f"{ST_BASE_URL}/{endpoint}", headers=headers, params=params, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
 
-  <!-- SWIPE -->
-  <div class="screen" id="screen-swipe">
-    <div class="topnav"><button onclick="goTo('screen-intent')">←</button></div>
-    <div class="eyebrow" id="swipe-eyebrow">Quelques goûts</div>
-    <h1 style="font-size:26px;">Voyons ce qui pourrait faire envie.</h1>
-    <p class="lead" id="swipe-lead">Quelques questions de goût, rien de figé.</p>
-    <div class="progress" id="progress"></div>
-    <div class="deck" id="deck"></div>
-    <div class="swipe-actions">
-      <button class="round-btn pass" onclick="swipe(false)">✕</button>
-      <button class="round-btn like" onclick="swipe(true)">♥</button>
-    </div>
-  </div>
 
-  <!-- DIGEST -->
-  <div class="screen" id="screen-digest">
-    <div class="topnav"><button onclick="goTo('screen-intent')">←</button></div>
-    <div class="eyebrow">La sélection</div>
-    <h1 style="font-size:26px;" id="digest-title">Pour ce soir, Sion.</h1>
-    <p class="lead">Basé sur les vraies activités disponibles, et sur ce qui vient d'être choisi.</p>
-    <div id="digest-list"></div>
-    <div class="footnote">Source : Switzerland Tourism (myswitzerland.com), licence CC-BY-SA. Lien retour sur chaque fiche.</div>
-    <div class="btn-row"><button class="btn btn-ghost" onclick="goTo('screen-intent')">↺ Refaire une recherche</button></div>
-  </div>
+DUREE_LABELS = {
+    "lessthan1hour": "moins d'1h", "2to4hourshalfday": "2 à 4h",
+    "between12hours": "1 à 2h", "4to8hoursfullday": "demi-journée",
+    "7days": "plusieurs jours",
+}
 
-</div>
 
-<div class="modal-overlay" id="modal-overlay">
-  <div class="modal">
-    <button class="modal-close" onclick="closeFiche()">✕</button>
-    <span class="tag-pill" id="fiche-tag"></span>
-    <h3 id="fiche-title"></h3>
-    <div class="meta-line" id="fiche-meta"></div>
-    <div class="divider"></div>
-    <div class="source-line">Source : Switzerland Tourism — <a href="#" id="fiche-backlink" target="_blank" rel="noopener">voir la fiche d'origine ↗</a></div>
-    <div class="modal-actions">
-      <a class="modal-btn primary" id="fiche-book" href="#" target="_blank" rel="noopener">S'inscrire / en savoir plus →</a>
-      <a class="modal-btn secondary" id="fiche-ics" href="#" download>📅 Ajouter à mon agenda</a>
-      <div class="share-row">
-        <a class="modal-btn secondary" id="fiche-whatsapp" href="#" target="_blank" rel="noopener">💬 WhatsApp</a>
-        <a class="modal-btn secondary" id="fiche-email" href="#">✉️ E-mail</a>
-      </div>
-    </div>
-  </div>
-</div>
+def extraire_genre(classification: list) -> str:
+    for c in classification or []:
+        if c.get("name") == "experiencetype":
+            for v in c.get("values", []):
+                code = v.get("name")
+                if code in GENRE_LABELS:
+                    return code
+    return "autre"
 
-<script>
-  const BACKEND = window.BACKEND_URL;
-  let clerk, token = null;
-  let recherche = "Sion";
 
-  const GENRE_LABELS = { nature:"Nature", adventure:"Aventure", active:"Actif", education:"Découverte",
-    culture:"Culture", culinary:"Culinaire", relax:"Détente", autre:"Surprise" };
-  const TEMPLATES = {
-    nature:["Une envie de nature ?","Se mettre au vert, sans prise de tête ?"],
-    adventure:["Une envie d'aventure ?","Sortir de la routine, un peu de sensations ?"],
-    active:["Une envie de bouger un peu ?","Un peu d'activité physique, à son rythme ?"],
-    education:["Une envie de découverte ?","Apprendre quelque chose en chemin ?"],
-    culture:["Une envie de culture ?","Un peu de patrimoine, ça tente ?"],
-    culinary:["Une envie de gourmandise ?","Découvrir un terroir, façon dégustation ?"],
-    relax:["Une envie de détente ?","Se poser tranquillement, sans effort ?"],
-    autre:["Un peu de tout, pour voir ce qui accroche ?","Curieux de voir ce qu'il y a par ici ?"],
-  };
-  const SVG_ICONS = {
-    nature: `<svg viewBox="0 0 64 64"><path d="M4 48 L22 24 L32 38 L40 28 L60 48 Z" fill="#F3ECE0" opacity="0.9"/></svg>`,
-    adventure: `<svg viewBox="0 0 64 64"><path d="M8 50 C8 30,20 14,32 14 C44 14,56 30,56 50" stroke="#F3ECE0" stroke-width="5" fill="none" stroke-linecap="round"/></svg>`,
-    active: `<svg viewBox="0 0 64 64"><path d="M6 46 Q18 26,30 40 T58 20" stroke="#F3ECE0" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="6" cy="46" r="3.5" fill="#F3ECE0"/><circle cx="58" cy="20" r="3.5" fill="#F3ECE0"/></svg>`,
-    education: `<svg viewBox="0 0 64 64"><path d="M32 20C26 14,14 14,8 18V46C14 42,26 42,32 48C38 42,50 42,56 46V18C50 14,38 14,32 20Z" stroke="#F3ECE0" stroke-width="2.5" fill="#F3ECE0" fill-opacity="0.15"/></svg>`,
-    culture: `<svg viewBox="0 0 64 64"><rect x="14" y="28" width="36" height="24" fill="#F3ECE0" opacity="0.9"/><path d="M14 28V20H20V24H28V18H36V24H44V20H50V28" stroke="#F3ECE0" stroke-width="3" fill="none"/></svg>`,
-    culinary: `<svg viewBox="0 0 64 64"><path d="M22 10C22 22,24 28,32 28C40 28,42 22,42 10Z" fill="#F3ECE0" opacity="0.9"/><line x1="32" y1="28" x2="32" y2="46" stroke="#F3ECE0" stroke-width="2.5"/></svg>`,
-    relax: `<svg viewBox="0 0 64 64"><path d="M6 30 Q16 22,26 30 T46 30 T58 30" stroke="#F3ECE0" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg>`,
-    autre: `<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="18" stroke="#F3ECE0" stroke-width="3" fill="none"/></svg>`,
-  };
+def extraire_duree(classification: list) -> str:
+    for c in classification or []:
+        if c.get("name") == "neededtime":
+            for v in c.get("values", []):
+                return DUREE_LABELS.get(v.get("name"), "variable")
+    return "variable"
 
-  function goTo(id){
-    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
-  }
 
-  async function api(path, options={}){
-    const headers = options.headers || {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(`${BACKEND}${path}`, { ...options, headers });
-    if (!res.ok) throw new Error(`${res.status} sur ${path}`);
-    return res.json();
-  }
+def rafraichir_depuis_api(recherche: str):
+    data = appeler_api_st("attractions", {"query": recherche, "expand": "false"})
+    maintenant = datetime.now(timezone.utc)
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM activites WHERE recherche = %s", (recherche,))
+            for item in data.get("data", []):
+                classification = item.get("classification")
+                cur.execute(
+                    "INSERT INTO activites (recherche, nom, resume, genre, duree, source_url, recupere_le) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (recherche, item.get("name"), item.get("abstract"),
+                     extraire_genre(classification), extraire_duree(classification),
+                     item.get("links", {}).get("self"), maintenant)
+                )
+        conn.commit()
 
-  // ---- Démarrage / Auth --------------------------------------------------
-  async function demarrerClerk(){
-    const statusEl = document.getElementById('auth-status');
-    try {
-      clerk = window.Clerk;
-      await clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
 
-      if (clerk.user){
-        token = await clerk.session.getToken();
-        await apresConnexion();
-      } else {
-        clerk.mountSignIn(document.getElementById('clerk-auth-mount'), { fallbackRedirectUrl: window.location.href });
-        clerk.addListener(async ({ user }) => {
-          if (user && !token){
-            token = await clerk.session.getToken();
-            await apresConnexion();
-          }
-        });
-      }
-    } catch (e) {
-      statusEl.textContent = "Erreur Clerk : " + e.message;
-      console.error(e);
-    }
-  }
+def lire_depuis_base(recherche: str):
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT nom, resume, genre, duree, source_url, recupere_le FROM activites WHERE recherche = %s", (recherche,))
+            lignes = cur.fetchall()
+    if not lignes:
+        return [], False
+    _, _, _, _, _, recupere_le = lignes[0]
+    fraiche = (datetime.now(timezone.utc) - recupere_le) < timedelta(hours=24)
+    # NOTE : le lieu précis (commune exacte) n'est pas fiable sans un appel détaillé
+    # supplémentaire par activité — on utilise donc le terme de recherche comme lieu
+    # approximatif ("Sion et environs"), pas la localité exacte de chaque item.
+    return [{"nom": n, "resume": r, "genre": g, "duree": d, "lieu": f"{recherche} et environs", "source_url": u}
+            for n, r, g, d, u, _ in lignes], fraiche
 
-  async function apresConnexion(){
-    document.getElementById('auth-status').textContent = `Connecté : ${clerk.user.primaryEmailAddress?.emailAddress || clerk.user.id}`;
-    try {
-      const profil = await api('/mon-profil');
-      if (profil.existe){
-        document.getElementById('welcome-back').textContent = `Re-bonjour, ${profil.prenom || ''}`;
-        recherche = profil.commune || "Sion";
-        goTo('screen-intent');
-      } else {
-        goTo('screen-profil');
-      }
-    } catch (e) {
-      console.error(e);
-      goTo('screen-profil');
-    }
-  }
 
-  async function enregistrerProfil(){
-    const commune = document.getElementById('p-commune').value || "Sion";
-    const age = document.getElementById('p-age').value;
-    const mode = document.getElementById('p-mode').value;
-    const prenom = clerk.user.firstName || clerk.user.primaryEmailAddress?.emailAddress?.split('@')[0] || "invité";
-    try {
-      const params = new URLSearchParams({ prenom, commune, age, mode });
-      await api(`/mon-profil?${params.toString()}`, { method: 'POST' });
-      recherche = commune;
-      goTo('screen-intent');
-    } catch (e) {
-      document.getElementById('profil-status').textContent = "Erreur : " + e.message;
-    }
-  }
+@app.on_event("startup")
+def au_demarrage():
+    initialiser_base()
 
-  // ---- Intention -----------------------------------------------------------
-  function chooseWindow(w){
-    const eyebrow = document.getElementById('swipe-eyebrow');
-    const lead = document.getElementById('swipe-lead');
-    const digestTitle = document.getElementById('digest-title');
-    if (eyebrow) eyebrow.textContent = `Recherche : ${w}`;
-    if (lead) lead.textContent = `Quelques questions de goût pour ${w}.`;
-    if (digestTitle) digestTitle.textContent = `Pour ${w}, ${recherche}.`;
-    chargerEtGenerer();
-  }
 
-  // ---- Cartes de goût, alimentées par les vraies données -------------------
-  let toutesActivites = [];
-  let scoresConnus = {};
-  let probes = [];
-  let idx = 0;
-  const liked = [];
-  let discoveryGenre = null;
+@app.get("/")
+def page_application():
+    """Sert directement l'appli à l'adresse racine — plus simple à partager,
+    plus aucun risque de confusion avec le message technique."""
+    return FileResponse("index.html")
 
-  async function chargerEtGenerer(){
-    try {
-      const [dataActivites, dataGouts] = await Promise.all([
-        api(`/activites?recherche=${encodeURIComponent(recherche)}`),
-        api('/mes-gouts').catch(() => ({ gouts: {} })),
-      ]);
-      toutesActivites = dataActivites.activites || [];
-      scoresConnus = dataGouts.gouts || {};
-      genererProbes();
-      idx = 0; liked.length = 0;
-      renderDeck();
-      goTo('screen-swipe');
-    } catch (e) {
-      alert("Erreur de chargement des activités : " + e.message);
-    }
-  }
 
-  function genererProbes(){
-    const genresDisponibles = [...new Set(toutesActivites.map(a => a.genre))];
-    const hasHistory = Object.values(scoresConnus).some(v => v > 0);
-    const nonExplores = genresDisponibles.filter(g => !(scoresConnus[g] > 0));
-    discoveryGenre = (hasHistory && nonExplores.length) ? nonExplores[Math.floor(Math.random()*nonExplores.length)] : null;
+@app.get("/status")
+def statut_technique():
+    """Vérification technique que le serveur tourne (ancien contenu de '/')."""
+    return {"statut": "ok", "message": "Le backend fonctionne !"}
 
-    const tries = [...genresDisponibles].sort((a,b) => (scoresConnus[b]||0) - (scoresConnus[a]||0));
-    probes = tries.filter(g => g !== discoveryGenre).map(g => ({
-      genre:g, tag: GENRE_LABELS[g] || g,
-      titre: (TEMPLATES[g] || ["Ça pourrait plaire ?"])[Math.floor(Math.random()*2)],
-      isDiscovery: false,
-    }));
-    if (discoveryGenre){
-      probes.push({ genre: discoveryGenre, tag: GENRE_LABELS[discoveryGenre] || discoveryGenre,
-        titre: `Et si on changeait un peu ? ${(TEMPLATES[discoveryGenre]||[''])[0]}`, isDiscovery: true });
-    }
-  }
 
-  function renderDeck(){
-    const deck = document.getElementById('deck');
-    deck.innerHTML = '';
-    probes.slice(idx, idx+2).reverse().forEach((a,i) => {
-      const el = document.createElement('div');
-      el.className = 'card-activity' + (a.isDiscovery ? ' discovery' : '');
-      el.style.zIndex = 2-i;
-      el.style.transform = i===1 ? 'scale(0.96) translateY(10px)' : 'scale(1) translateY(0)';
-      el.innerHTML = `
-        <div class="art g-${a.genre}"><div class="art-icon">${SVG_ICONS[a.genre]||SVG_ICONS.autre}</div></div>
-        ${a.isDiscovery ? '<div class="discovery-flag">Découverte</div>' : ''}
-        <div class="tag">${a.tag}</div><h3>${a.titre}</h3>`;
-      deck.appendChild(el);
-    });
-    updateProgress();
-    if (idx >= probes.length) buildDigest();
-  }
+@app.get("/app")
+def page_application_alias():
+    """Ancien lien, gardé pour compatibilité avec ce qui a déjà été partagé."""
+    return FileResponse("index.html")
 
-  function updateProgress(){
-    const wrap = document.getElementById('progress');
-    wrap.innerHTML = '';
-    probes.forEach((_,i) => {
-      const s = document.createElement('span');
-      s.innerHTML = `<i style="width:${i<idx?'100':'0'}%"></i>`;
-      wrap.appendChild(s);
-    });
-  }
 
-  function swipe(aime){
-    if (idx >= probes.length) return;
-    const current = probes[idx];
-    const top = document.querySelector('.deck .card-activity:last-child');
-    if (top){ top.style.transform = aime ? 'translateX(120%) rotate(12deg)' : 'translateX(-120%) rotate(-12deg)'; top.style.opacity='0'; }
-    if (aime) liked.push(current);
-    scoresConnus[current.genre] = Math.max(0, (scoresConnus[current.genre]||0) + (aime?1:-0.2));
-    api(`/mes-gouts/${current.genre}?aime=${aime}`, { method:'POST' }).catch(console.error);
-    idx++;
-    setTimeout(renderDeck, 200);
-  }
+@app.get("/activites")
+def activites(recherche: str = Query("Sion")):
+    if not ST_API_KEY:
+        return {"erreur": "Clé API manquante."}
+    resultats, fraiche = lire_depuis_base(recherche)
+    if not fraiche:
+        rafraichir_depuis_api(recherche)
+        resultats, _ = lire_depuis_base(recherche)
+    return {"recherche": recherche, "total": len(resultats), "activites": resultats}
 
-  // ---- Digest ---------------------------------------------------------------
-  let currentPicks = [];
 
-  function buildDigest(){
-    const list = document.getElementById('digest-list');
-    list.innerHTML = '';
-    const genresChoisis = liked.length ? [...new Set(liked.map(a=>a.genre))] : probes.slice(0,3).map(a=>a.genre);
-    currentPicks = genresChoisis.slice(0,3).map(g => {
-      const options = toutesActivites.filter(a => a.genre === g);
-      const item = options.length ? options[Math.floor(Math.random()*options.length)] : null;
-      return item ? { ...item, tagLabel: GENRE_LABELS[g]||g, isDiscovery: g===discoveryGenre } : null;
-    }).filter(Boolean);
+@app.get("/mon-profil")
+def lire_profil(utilisateur_id: str = Depends(verifier_connexion)):
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT prenom, commune, age, mode FROM profils WHERE utilisateur_id = %s", (utilisateur_id,))
+            ligne = cur.fetchone()
+    if not ligne:
+        return {"existe": False}
+    prenom, commune, age, mode = ligne
+    return {"existe": True, "prenom": prenom, "commune": commune, "age": age, "mode": mode}
 
-    currentPicks.forEach((a,i) => {
-      const card = document.createElement('div');
-      card.className = 'digest-card';
-      const note = a.isDiscovery
-        ? "Un genre encore inexploré — celle-ci sort du lot."
-        : `Le goût pour ${a.tagLabel.toLowerCase()} vient d'être noté.`;
-      card.innerHTML = `
-        <div class="num">0${i+1}</div>
-        <h3>${a.nom}</h3>
-        <div class="meta">${a.lieu} · ${a.duree} · ${a.tagLabel}${a.isDiscovery?' · Découverte':''}</div>
-        <div class="meta">Date possible : toute l'année · Horaires : accès libre</div>
-        <div class="resume">${a.resume||''}</div>
-        <div class="note">${note}</div>
-        <div class="digest-actions"><button class="link-btn" onclick="openFiche(${i})">Voir la fiche →</button></div>`;
-      list.appendChild(card);
-    });
-    goTo('screen-digest');
-  }
 
-  function openFiche(i){
-    const a = currentPicks[i];
-    document.getElementById('fiche-tag').textContent = a.tagLabel;
-    document.getElementById('fiche-title').textContent = a.nom;
-    document.getElementById('fiche-meta').textContent = `${a.lieu} · ${a.duree}`;
-    document.getElementById('fiche-book').href = a.source_url || '#';
-    document.getElementById('fiche-backlink').href = a.source_url || '#';
-    document.getElementById('fiche-ics').href = buildIcs(a.nom, a.lieu);
-    document.getElementById('fiche-ics').setAttribute('download', a.nom.replace(/[^a-z0-9]/gi,'_')+'.ics');
-    const shareText = `${a.nom} — ${a.lieu}. Envie d'y aller ensemble ?`;
-    document.getElementById('fiche-whatsapp').href = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
-    document.getElementById('fiche-email').href = `mailto:?subject=${encodeURIComponent('Une idée pour notre soir libre : '+a.nom)}&body=${encodeURIComponent(shareText)}`;
-    document.getElementById('modal-overlay').classList.add('open');
-  }
-  function closeFiche(){ document.getElementById('modal-overlay').classList.remove('open'); }
-  function buildIcs(titre, lieu){
-    const start = new Date(); start.setDate(start.getDate()+3); start.setHours(19,0,0,0);
-    const end = new Date(start); end.setHours(21,0,0,0);
-    const fmt = d => d.toISOString().replace(/[-:]/g,'').split('.')[0]+'Z';
-    const ics = ['BEGIN:VCALENDAR','VERSION:2.0','BEGIN:VEVENT',`DTSTART:${fmt(start)}`,`DTEND:${fmt(end)}`,`SUMMARY:${titre}`,`DESCRIPTION:${lieu}`,'END:VEVENT','END:VCALENDAR'].join('\n');
-    return 'data:text/calendar;charset=utf-8,'+encodeURIComponent(ics);
-  }
+@app.post("/mon-profil")
+def maj_profil(prenom: str, commune: str, age: str, mode: str, utilisateur_id: str = Depends(verifier_connexion)):
+    maintenant = datetime.now(timezone.utc)
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO profils (utilisateur_id, prenom, commune, age, mode, maj_le)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (utilisateur_id)
+                DO UPDATE SET prenom = %s, commune = %s, age = %s, mode = %s, maj_le = %s
+            """, (utilisateur_id, prenom, commune, age, mode, maintenant,
+                  prenom, commune, age, mode, maintenant))
+        conn.commit()
+    return {"statut": "ok"}
 
-  window.addEventListener('load', () => {
-    const v = setInterval(() => { if (window.Clerk){ clearInterval(v); demarrerClerk(); } }, 100);
-  });
-</script>
 
-</body>
-</html>
+@app.get("/mes-gouts")
+def lire_mes_gouts(utilisateur_id: str = Depends(verifier_connexion)):
+    """Renvoie les scores de goûts de la personne connectée."""
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT genre, score FROM preferences WHERE utilisateur_id = %s",
+                (utilisateur_id,)
+            )
+            lignes = cur.fetchall()
+    return {"gouts": {genre: score for genre, score in lignes}}
+
+
+@app.post("/mes-gouts/{genre}")
+def maj_gout(genre: str, aime: bool, utilisateur_id: str = Depends(verifier_connexion)):
+    """Met à jour le score d'un genre pour la personne connectée.
+    aime=true → +1 point, aime=false → -0.2 point (jamais sous 0)."""
+    variation = 1.0 if aime else -0.2
+    maintenant = datetime.now(timezone.utc)
+
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO preferences (utilisateur_id, genre, score, maj_le)
+                VALUES (%s, %s, GREATEST(0, %s), %s)
+                ON CONFLICT (utilisateur_id, genre)
+                DO UPDATE SET score = GREATEST(0, preferences.score + %s), maj_le = %s
+            """, (utilisateur_id, genre, variation, maintenant, variation, maintenant))
+        conn.commit()
+
+    return {"statut": "ok", "genre": genre}
