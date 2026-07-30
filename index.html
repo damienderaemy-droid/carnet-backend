@@ -6,7 +6,7 @@
 <title>Carnet</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
- 
+
 <script>
   window.CLERK_PUBLISHABLE_KEY = "pk_test_Y2VydGFpbi1tYWtvLTM4LmNsZXJrLmFjY291bnRzLmRldiQ";
   window.BACKEND_URL = "https://web-production-af168.up.railway.app";
@@ -18,7 +18,7 @@
   src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
   type="text/javascript"
 ></script>
- 
+
 <style>
   :root{
     --bg: #1C2B2E; --bg-alt: #24393D; --card: #F3ECE0; --ink: #1C2B2E;
@@ -41,7 +41,7 @@
   p.lead{ color: rgba(243,236,224,0.72); font-size: 15px; line-height: 1.55; margin: 0 0 24px; max-width: 40ch; }
   .screen{ display:none; } .screen.active{ display:block; animation: rise .4s ease both; }
   @keyframes rise{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
- 
+
   .field-row{ display:flex; gap:10px; margin-bottom: 12px; flex-wrap: wrap; }
   .chip-input{ flex:1; min-width: 140px; }
   label.mini{ display:block; font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.06em;
@@ -53,7 +53,7 @@
   select:focus, input:focus{ outline: 2px solid var(--accent-soft); outline-offset:1px; }
   input:-webkit-autofill{ -webkit-text-fill-color: var(--card); -webkit-box-shadow: 0 0 0px 1000px var(--bg-alt) inset;
     transition: background-color 9999s ease-in-out 0s; caret-color: var(--card); }
- 
+
   .btn{ appearance:none; border:none; cursor:pointer; font-family:'Public Sans', sans-serif; font-weight:600;
     font-size:14px; padding: 13px 22px; border-radius: 999px; background: var(--accent); color: #1C2B2E;
     transition: transform .15s ease, background .15s ease; width:100%; }
@@ -61,14 +61,14 @@
   .btn-ghost{ background: transparent; color: var(--card); border: 1px solid var(--line); }
   .btn-ghost:hover{ background: rgba(243,236,224,0.06); }
   .btn-row{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
- 
+
   .topnav{ display:flex; align-items:center; gap:10px; margin-bottom: 18px; }
   .topnav button{ appearance:none; border:none; cursor:pointer; background: var(--bg-alt); color: var(--card);
     width:34px; height:34px; border-radius: 50%; font-size:16px; }
   .topnav button:hover{ background: rgba(243,236,224,0.12); }
- 
+
   #clerk-auth-mount{ min-height: 260px; }
- 
+
   .deck{ position: relative; height: 400px; margin-bottom: 18px; }
   .card-activity{
     position:absolute; inset:0; background: var(--card); color: var(--ink); border-radius: var(--radius);
@@ -94,17 +94,17 @@
   .g-autre{ background: linear-gradient(160deg, #B7B7A8, #5A5A4E); }
   .art-icon{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
   .art-icon svg{ width:60px; height:60px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)); }
- 
+
   .swipe-actions{ display:flex; justify-content: center; gap: 22px; margin-bottom: 18px; }
   .round-btn{ width:56px; height:56px; border-radius:50%; border:1px solid var(--line); background: var(--bg-alt);
     color: var(--card); font-size: 22px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
   .round-btn:hover{ transform: scale(1.06); }
   .round-btn.pass{ color:#E39A9A; } .round-btn.like{ color: var(--accent-soft); }
- 
+
   .progress{ display:flex; gap:6px; margin-bottom: 22px; }
   .progress span{ height:3px; flex:1; background: var(--line); border-radius:2px; overflow:hidden; }
   .progress span i{ display:block; height:100%; width:0%; background: var(--accent); transition: width .3s ease; }
- 
+
   .digest-card{ background: var(--bg-alt); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; position: relative; }
   .digest-card .num{ font-family:'Fraunces', serif; font-size: 13px; color: var(--accent-soft); position:absolute; top:20px; right:20px; }
   .digest-card h3{ font-family:'Fraunces', serif; font-size:20px; margin: 0 0 6px; padding-right: 30px; }
@@ -114,9 +114,9 @@
   .digest-actions{ display:flex; gap:10px; }
   .link-btn{ font-family:'IBM Plex Mono', monospace; font-size:12px; color: var(--accent-soft); text-decoration:none; cursor:pointer; background:none; border:none; }
   .link-btn:hover{ text-decoration: underline; }
- 
+
   .footnote{ margin-top: 24px; font-size: 12.5px; color: rgba(243,236,224,0.4); line-height:1.5; }
- 
+
   .modal-overlay{ display:none; position: fixed; inset:0; background: rgba(0,0,0,0.55); align-items:center; justify-content:center; padding: 20px; z-index: 50; }
   .modal-overlay.open{ display:flex; }
   .modal{ background: var(--card); color: var(--ink); border-radius: var(--radius); max-width: 400px; width:100%; padding: 24px; position: relative; }
@@ -133,7 +133,7 @@
   .modal-btn.primary{ background: var(--accent); color:#1C2B2E; }
   .modal-btn.secondary{ background: #EDE6D8; color: var(--ink); }
   .share-row{ display:flex; gap:8px; } .share-row .modal-btn{ flex:1; }
- 
+
   .landing-hero h1{ font-size: 34px; margin: 0 0 16px; }
   .mini-stack{ position: relative; height: 140px; margin: 8px 0 32px; }
   .mini-card{ position:absolute; top:0; left:0; width: 180px; height:120px; background: var(--card); color: var(--ink);
@@ -145,14 +145,14 @@
   .mini-card.c3{ transform: rotate(-3deg) translate(140px,14px); z-index:1; opacity:0.9; }
   .feature-strip{ display:flex; flex-direction:column; gap:14px; margin-bottom: 30px; padding-top: 20px; border-top: 1px solid var(--line); }
   .feature-row{ font-size:14px; color: rgba(243,236,224,0.85); }
- 
+
   .status{ font-family:'IBM Plex Mono', monospace; font-size: 12px; color: rgba(243,236,224,0.5); margin-top: 16px; }
 </style>
 </head>
 <body>
- 
+
 <div class="stage">
- 
+
   <!-- LANDING -->
   <div class="screen active" id="screen-landing">
     <div class="eyebrow">Carnet</div>
@@ -170,7 +170,7 @@
     </div>
     <button class="btn" onclick="goTo('screen-auth')">Découvrir →</button>
   </div>
- 
+
   <!-- AUTH (Clerk) -->
   <div class="screen" id="screen-auth">
     <div class="topnav"><button onclick="goTo('screen-landing')">←</button></div>
@@ -180,7 +180,7 @@
     <div id="clerk-auth-mount"></div>
     <div class="status" id="auth-status">Chargement...</div>
   </div>
- 
+
   <!-- PROFIL (une fois, après 1ère connexion) -->
   <div class="screen" id="screen-profil">
     <div class="eyebrow">Carnet — profil</div>
@@ -200,7 +200,7 @@
     <button class="btn" onclick="enregistrerProfil()">Continuer →</button>
     <div class="status" id="profil-status"></div>
   </div>
- 
+
   <!-- INTENTION -->
   <div class="screen" id="screen-intent">
     <div class="topnav"><button onclick="goTo('screen-profil')">←</button></div>
@@ -213,7 +213,7 @@
     </div>
     <div class="footnote" id="memory-note" style="display:none;"></div>
   </div>
- 
+
   <!-- SWIPE -->
   <div class="screen" id="screen-swipe">
     <div class="topnav"><button onclick="goTo('screen-intent')">←</button></div>
@@ -227,7 +227,7 @@
       <button class="round-btn like" onclick="swipe(true)">♥</button>
     </div>
   </div>
- 
+
   <!-- DIGEST -->
   <div class="screen" id="screen-digest">
     <div class="topnav"><button onclick="goTo('screen-intent')">←</button></div>
@@ -238,9 +238,9 @@
     <div class="footnote">Source : Switzerland Tourism (myswitzerland.com), licence CC-BY-SA. Lien retour sur chaque fiche.</div>
     <div class="btn-row"><button class="btn btn-ghost" onclick="goTo('screen-intent')">↺ Refaire une recherche</button></div>
   </div>
- 
+
 </div>
- 
+
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal">
     <button class="modal-close" onclick="closeFiche()">✕</button>
@@ -259,14 +259,14 @@
     </div>
   </div>
 </div>
- 
+
 <script>
   const BACKEND = window.BACKEND_URL;
   let clerk, token = null;
   let recherche = "Sion";
- 
+
   const GENRE_LABELS = { nature:"Nature", adventure:"Aventure", active:"Actif", education:"Découverte",
-    culture:"Culture", culinary:"Culinaire", relax:"Détente", autre:"Découverte" };
+    culture:"Culture", culinary:"Culinaire", relax:"Détente", autre:"Surprise" };
   const TEMPLATES = {
     nature:["Une envie de nature ?","Se mettre au vert, sans prise de tête ?"],
     adventure:["Une envie d'aventure ?","Sortir de la routine, un peu de sensations ?"],
@@ -275,7 +275,7 @@
     culture:["Une envie de culture ?","Un peu de patrimoine, ça tente ?"],
     culinary:["Une envie de gourmandise ?","Découvrir un terroir, façon dégustation ?"],
     relax:["Une envie de détente ?","Se poser tranquillement, sans effort ?"],
-    autre:["Curieux de voir ce qu'il y a ?","Un peu de tout, pour voir ce qui accroche ?"],
+    autre:["Un peu de tout, pour voir ce qui accroche ?","Curieux de voir ce qu'il y a par ici ?"],
   };
   const SVG_ICONS = {
     nature: `<svg viewBox="0 0 64 64"><path d="M4 48 L22 24 L32 38 L40 28 L60 48 Z" fill="#F3ECE0" opacity="0.9"/></svg>`,
@@ -287,12 +287,12 @@
     relax: `<svg viewBox="0 0 64 64"><path d="M6 30 Q16 22,26 30 T46 30 T58 30" stroke="#F3ECE0" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg>`,
     autre: `<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="18" stroke="#F3ECE0" stroke-width="3" fill="none"/></svg>`,
   };
- 
+
   function goTo(id){
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
   }
- 
+
   async function api(path, options={}){
     const headers = options.headers || {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -300,14 +300,14 @@
     if (!res.ok) throw new Error(`${res.status} sur ${path}`);
     return res.json();
   }
- 
+
   // ---- Démarrage / Auth --------------------------------------------------
   async function demarrerClerk(){
     const statusEl = document.getElementById('auth-status');
     try {
       clerk = window.Clerk;
       await clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
- 
+
       if (clerk.user){
         token = await clerk.session.getToken();
         await apresConnexion();
@@ -325,7 +325,7 @@
       console.error(e);
     }
   }
- 
+
   async function apresConnexion(){
     document.getElementById('auth-status').textContent = `Connecté : ${clerk.user.primaryEmailAddress?.emailAddress || clerk.user.id}`;
     try {
@@ -342,7 +342,7 @@
       goTo('screen-profil');
     }
   }
- 
+
   async function enregistrerProfil(){
     const commune = document.getElementById('p-commune').value || "Sion";
     const age = document.getElementById('p-age').value;
@@ -357,7 +357,7 @@
       document.getElementById('profil-status').textContent = "Erreur : " + e.message;
     }
   }
- 
+
   // ---- Intention -----------------------------------------------------------
   function chooseWindow(w){
     const eyebrow = document.getElementById('swipe-eyebrow');
@@ -368,7 +368,7 @@
     if (digestTitle) digestTitle.textContent = `Pour ${w}, ${recherche}.`;
     chargerEtGenerer();
   }
- 
+
   // ---- Cartes de goût, alimentées par les vraies données -------------------
   let toutesActivites = [];
   let scoresConnus = {};
@@ -376,7 +376,7 @@
   let idx = 0;
   const liked = [];
   let discoveryGenre = null;
- 
+
   async function chargerEtGenerer(){
     try {
       const [dataActivites, dataGouts] = await Promise.all([
@@ -393,13 +393,13 @@
       alert("Erreur de chargement des activités : " + e.message);
     }
   }
- 
+
   function genererProbes(){
     const genresDisponibles = [...new Set(toutesActivites.map(a => a.genre))];
     const hasHistory = Object.values(scoresConnus).some(v => v > 0);
     const nonExplores = genresDisponibles.filter(g => !(scoresConnus[g] > 0));
     discoveryGenre = (hasHistory && nonExplores.length) ? nonExplores[Math.floor(Math.random()*nonExplores.length)] : null;
- 
+
     const tries = [...genresDisponibles].sort((a,b) => (scoresConnus[b]||0) - (scoresConnus[a]||0));
     probes = tries.filter(g => g !== discoveryGenre).map(g => ({
       genre:g, tag: GENRE_LABELS[g] || g,
@@ -411,7 +411,7 @@
         titre: `Et si on changeait un peu ? ${(TEMPLATES[discoveryGenre]||[''])[0]}`, isDiscovery: true });
     }
   }
- 
+
   function renderDeck(){
     const deck = document.getElementById('deck');
     deck.innerHTML = '';
@@ -429,7 +429,7 @@
     updateProgress();
     if (idx >= probes.length) buildDigest();
   }
- 
+
   function updateProgress(){
     const wrap = document.getElementById('progress');
     wrap.innerHTML = '';
@@ -439,7 +439,7 @@
       wrap.appendChild(s);
     });
   }
- 
+
   function swipe(aime){
     if (idx >= probes.length) return;
     const current = probes[idx];
@@ -451,10 +451,10 @@
     idx++;
     setTimeout(renderDeck, 200);
   }
- 
+
   // ---- Digest ---------------------------------------------------------------
   let currentPicks = [];
- 
+
   function buildDigest(){
     const list = document.getElementById('digest-list');
     list.innerHTML = '';
@@ -464,7 +464,7 @@
       const item = options.length ? options[Math.floor(Math.random()*options.length)] : null;
       return item ? { ...item, tagLabel: GENRE_LABELS[g]||g, isDiscovery: g===discoveryGenre } : null;
     }).filter(Boolean);
- 
+
     currentPicks.forEach((a,i) => {
       const card = document.createElement('div');
       card.className = 'digest-card';
@@ -483,7 +483,7 @@
     });
     goTo('screen-digest');
   }
- 
+
   function openFiche(i){
     const a = currentPicks[i];
     document.getElementById('fiche-tag').textContent = a.tagLabel;
@@ -506,12 +506,11 @@
     const ics = ['BEGIN:VCALENDAR','VERSION:2.0','BEGIN:VEVENT',`DTSTART:${fmt(start)}`,`DTEND:${fmt(end)}`,`SUMMARY:${titre}`,`DESCRIPTION:${lieu}`,'END:VEVENT','END:VCALENDAR'].join('\n');
     return 'data:text/calendar;charset=utf-8,'+encodeURIComponent(ics);
   }
- 
+
   window.addEventListener('load', () => {
     const v = setInterval(() => { if (window.Clerk){ clearInterval(v); demarrerClerk(); } }, 100);
   });
 </script>
- 
+
 </body>
 </html>
- 
