@@ -31,6 +31,9 @@
     margin:0; background: var(--bg); color: var(--card); font-family: 'Public Sans', sans-serif;
     min-height: 100vh; display:flex; align-items:center; justify-content:center; padding: 32px 16px; overflow-x:hidden;
   }
+  @media (max-width: 480px){
+    body{ align-items: flex-start; padding: 44px 16px 32px; }
+  }
   .stage{ width: 100%; max-width: 460px; position: relative; }
   .eyebrow{
     font-family:'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
@@ -233,7 +236,7 @@
     <div class="topnav"><button onclick="goTo('screen-intent')">←</button></div>
     <div class="eyebrow">La sélection</div>
     <h1 style="font-size:26px;" id="digest-title">Pour ce soir, Sion.</h1>
-    <p class="lead">Basé sur les vraies activités disponibles, et sur ce qui vient d'être choisi.</p>
+    <p class="lead">Voici ce qui a été retenu, à partir de ce qui vient d'être choisi juste avant.</p>
     <div id="digest-list"></div>
     <div class="footnote">Source : Switzerland Tourism (myswitzerland.com), licence CC-BY-SA. Lien retour sur chaque fiche.</div>
     <div class="btn-row"><button class="btn btn-ghost" onclick="goTo('screen-intent')">↺ Refaire une recherche</button></div>
@@ -468,16 +471,12 @@
     currentPicks.forEach((a,i) => {
       const card = document.createElement('div');
       card.className = 'digest-card';
-      const note = a.isDiscovery
-        ? "Un genre encore inexploré — celle-ci sort du lot."
-        : `Le goût pour ${a.tagLabel.toLowerCase()} vient d'être noté.`;
       card.innerHTML = `
         <div class="num">0${i+1}</div>
         <h3>${a.nom}</h3>
-        <div class="meta">${a.lieu} · ${a.duree} · ${a.tagLabel}${a.isDiscovery?' · Découverte':''}</div>
+        <div class="meta">${a.lieu} · ${a.duree} · ${a.tagLabel}${a.isDiscovery?' · Surprise':''}</div>
         <div class="meta">Date possible : toute l'année · Horaires : accès libre</div>
         <div class="resume">${a.resume||''}</div>
-        <div class="note">${note}</div>
         <div class="digest-actions"><button class="link-btn" onclick="openFiche(${i})">Voir la fiche →</button></div>`;
       list.appendChild(card);
     });
