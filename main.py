@@ -85,6 +85,7 @@ def initialiser_base():
                     recherche TEXT NOT NULL,
                     nom TEXT, resume TEXT, genre TEXT, duree TEXT, source_url TEXT,
                     lat DOUBLE PRECISION, lon DOUBLE PRECISION,
+                    debut TIMESTAMPTZ, fin TIMESTAMPTZ, prix_min REAL, source TEXT DEFAULT 'st',
                     recupere_le TIMESTAMPTZ NOT NULL
                 );
             """)
@@ -110,6 +111,10 @@ def initialiser_base():
             cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS duree TEXT;")
             cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;")
             cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION;")
+            cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS debut TIMESTAMPTZ;")
+            cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS fin TIMESTAMPTZ;")
+            cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS prix_min REAL;")
+            cur.execute("ALTER TABLE activites ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'st';")
         conn.commit()
 
 
@@ -199,16 +204,16 @@ def rafraichir_depuis_api(recherche: str = POOL_KEY):
 
     with get_connexion() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM activites WHERE recherche = %s", (POOL_KEY,))
+            cur.execute("DELETE FROM activites WHERE recherche = %s AND source = %s", (POOL_KEY, "st"))
             for item in vus.values():
                 classification = item.get("classification")
                 geo = item.get("geo") or {}
                 cur.execute(
-                    "INSERT INTO activites (recherche, nom, resume, genre, duree, source_url, lat, lon, recupere_le) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "INSERT INTO activites (recherche, nom, resume, genre, duree, source_url, lat, lon, source, recupere_le) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (POOL_KEY, item.get("name"), item.get("abstract"),
                      extraire_genre(classification), extraire_duree(classification),
                      item.get("links", {}).get("self"), geo.get("latitude"), geo.get("longitude"),
-                     maintenant)
+                     "st", maintenant)
                 )
         conn.commit()
 
@@ -216,14 +221,21 @@ def rafraichir_depuis_api(recherche: str = POOL_KEY):
 def lire_depuis_base(recherche: str = POOL_KEY):
     with get_connexion() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT nom, resume, genre, duree, source_url, lat, lon, recupere_le FROM activites WHERE recherche = %s", (POOL_KEY,))
+            cur.execute(
+                "SELECT nom, resume, genre, duree, source_url, lat, lon, debut, fin, prix_min, source, recupere_le "
+                "FROM activites WHERE recherche = %s", (POOL_KEY,)
+            )
             lignes = cur.fetchall()
     if not lignes:
         return [], False
-    recupere_le = lignes[0][7]
-    fraiche = (datetime.now(timezone.utc) - recupere_le) < timedelta(hours=24)
-    return [{"nom": n, "resume": r, "genre": g, "duree": d, "source_url": u, "lat": la, "lon": lo}
-            for n, r, g, d, u, la, lo, _ in lignes], fraiche
+    # Fraîcheur calculée sur la ligne la plus ancienne, pour être sûr de tout rafraîchir
+    # si une seule des deux sources est périmée.
+    plus_ancien = min(l[11] for l in lignes)
+    fraiche = (datetime.now(timezone.utc) - plus_ancien) < timedelta(hours=24)
+    return [{"nom": n, "resume": r, "genre": g, "duree": d, "source_url": u, "lat": la, "lon": lo,
+              "debut": deb.isoformat() if deb else None, "fin": fin.isoformat() if fin else None,
+              "prix_min": px, "source": src}
+            for n, r, g, d, u, la, lo, deb, fin, px, src, _ in lignes], fraiche
 
 
 @app.on_event("startup")
@@ -265,26 +277,26 @@ def activites(recherche: str = Query("Sion"), rayon_km: float = Query(20.0)):
     pool, fraiche = lire_depuis_base()
     if not fraiche:
         rafraichir_depuis_api()
+        rafraichir_evenements_eventfrog()
         pool, _ = lire_depuis_base()
 
     centre = geocoder_commune(recherche)
-    if centre is None:
-        # Géocodage impossible : on renvoie le pool complet, sans filtrage par distance,
-        # plutôt que de bloquer complètement la recherche.
-        resultats = [{**a, "lieu": "Valais", "distance_km": None} for a in pool]
-        return {"recherche": recherche, "rayon_km": rayon_km, "total": len(resultats),
-                "activites": resultats, "avertissement": "Commune non géolocalisée, distance non calculée."}
-
-    lat_c, lon_c = centre
     resultats = []
     for a in pool:
-        if a["lat"] is None or a["lon"] is None:
+        if a["source"] == "eventfrog":
+            # Déjà filtré à la source sur les codes postaux valaisans — pas de
+            # coordonnées précises disponibles ici, donc pas de calcul de distance.
+            resultats.append({**a, "lieu": "Valais", "distance_km": None})
             continue
+
+        if centre is None or a["lat"] is None or a["lon"] is None:
+            continue
+        lat_c, lon_c = centre
         d = distance_km(lat_c, lon_c, a["lat"], a["lon"])
         if d <= rayon_km:
             resultats.append({**a, "lieu": f"à {round(d)} km de {recherche}", "distance_km": round(d, 1)})
 
-    resultats.sort(key=lambda a: a["distance_km"])
+    resultats.sort(key=lambda a: (a["distance_km"] is None, a["distance_km"] or 0))
     return {"recherche": recherche, "rayon_km": rayon_km, "total": len(resultats), "activites": resultats}
 
 
@@ -316,42 +328,84 @@ def maj_profil(prenom: str, nom: str, commune: str, age: str, mode: str, utilisa
     return {"statut": "ok"}
 
 
-@app.get("/test-eventfrog")
-def test_eventfrog():
-    """Endpoint de TEST uniquement — vérifie ce qu'Eventfrog renvoie pour le
-    Valais. À retirer avant tout vrai lancement, ce n'est pas fait pour durer."""
-    if not EVENTFROG_API_KEY:
-        return {"erreur": "Clé EVENTFROG_API_KEY manquante sur Railway."}
+NPA_VALAIS = [str(n) for n in list(range(1870, 1999)) + list(range(3900, 4000))]
 
-    # Codes postaux valaisans (Bas-Valais 1870-1998, Haut-Valais 3900-3999).
-    # Plus précis qu'un rayon en km, qui déborde sur les cantons voisins
-    # vu la forme tout en longueur du Valais.
-    npa_valais = [str(n) for n in list(range(1870, 1999)) + list(range(3900, 4000))]
+# Mapping des catégories Eventfrog (déduites du slug d'URL) vers nos genres existants.
+MAPPING_CATEGORIE_EVENTFROG = {
+    "art-expositions": "culture",
+    "klassik-opern": "culture",
+    "konzerte": "culture",
+    "festivals": "culture",
+    "fetes-traditionnelle": "culture",
+    "volksfeste": "culture",
+    "kinderveranstaltungen": "culture",
+    "fuehrungen-vortraege": "education",
+    "kurse-seminare": "education",
+    "loisirs-excursions": "active",
+    "freizeit-ausfluege": "active",
+    "sport-fitness": "active",
+    "gesundheit-spiritualitaet": "relax",
+    "partys": "autre",
+    "soirees-fetes": "autre",
+    "divers": "autre",
+    "diverses": "autre",
+}
+
+
+def extraire_genre_eventfrog(url: str) -> str:
+    """Déduit un de nos genres depuis le slug de catégorie présent dans l'URL Eventfrog
+    (ex: eventfrog.ch/fr/p/art-expositions/... -> culture). Pas d'appel API supplémentaire."""
+    if not url:
+        return "autre"
+    for slug, genre in MAPPING_CATEGORIE_EVENTFROG.items():
+        if f"/{slug}/" in url:
+            return genre
+    return "autre"
+
+
+def rafraichir_evenements_eventfrog():
+    """Récupère les événements datés (concerts, expos, conférences...) via Eventfrog,
+    filtrés sur les codes postaux valaisans réels. Complète les données Switzerland
+    Tourism (qui ne couvrent que les lieux permanents, pas les événements ponctuels)."""
+    if not EVENTFROG_API_KEY:
+        return
 
     headers = {"Authorization": f"Bearer {EVENTFROG_API_KEY}"}
-    params = {"zip": npa_valais, "country": "CH", "perPage": 50}
+    maintenant = datetime.now(timezone.utc)
+    vus = {}
+    for page in range(3):  # jusqu'à 150 événements
+        params = {"zip": NPA_VALAIS, "country": "CH", "perPage": 50, "page": page}
+        try:
+            resp = requests.get("https://api.eventfrog.net/public/v1/events", headers=headers, params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            print(f"Erreur Eventfrog (page {page}) : {e}")
+            break
+        events = data.get("events", [])
+        if not events:
+            break
+        for ev in events:
+            vus[ev.get("id")] = ev
 
-    try:
-        resp = requests.get("https://api.eventfrog.net/public/v1/events", headers=headers, params=params, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        return {"erreur": f"{type(e).__name__}: {e}"}
-
-    evenements = []
-    for ev in data.get("events", []):
-        titre_dict = ev.get("title") or {}
-        titre = titre_dict.get("fr") or titre_dict.get("de") or titre_dict.get("en") or titre_dict.get("it") \
-            or next(iter(titre_dict.values()), "?")
-        evenements.append({
-            "titre": titre,
-            "debut": ev.get("begin"),
-            "fin": ev.get("end"),
-            "prix_min": ev.get("lowestTicketPrice"),
-            "lien": ev.get("url"),
-        })
-
-    return {"total_disponible": data.get("totalNumberOfResources"), "recus": len(evenements), "evenements": evenements}
+    with get_connexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM activites WHERE recherche = %s AND source = %s", (POOL_KEY, "eventfrog"))
+            for ev in vus.values():
+                titre_dict = ev.get("title") or {}
+                titre = titre_dict.get("fr") or titre_dict.get("de") or titre_dict.get("en") \
+                    or titre_dict.get("it") or next(iter(titre_dict.values()), "Événement")
+                resume_dict = ev.get("shortDescription") or {}
+                resume = resume_dict.get("fr") or resume_dict.get("de") or resume_dict.get("en") or ""
+                url = ev.get("url")
+                cur.execute(
+                    """INSERT INTO activites
+                       (recherche, nom, resume, genre, duree, source_url, debut, fin, prix_min, source, recupere_le)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (POOL_KEY, titre, resume, extraire_genre_eventfrog(url), None, url,
+                     ev.get("begin"), ev.get("end"), ev.get("lowestTicketPrice"), "eventfrog", maintenant)
+                )
+        conn.commit()
 
 
 @app.get("/mes-gouts")
