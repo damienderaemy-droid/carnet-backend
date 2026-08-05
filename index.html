@@ -528,7 +528,7 @@
     wrap.innerHTML = '';
     probes.forEach((_,i) => {
       const s = document.createElement('span');
-      s.innerHTML = `<i style="width:${i<idx?'100':'0'}%"></i>`;
+      s.innerHTML = `<i style="width:${i<=idx?'100':'0'}%"></i>`;
       wrap.appendChild(s);
     });
   }
