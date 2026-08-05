@@ -389,7 +389,7 @@ def rafraichir_evenements_eventfrog():
     maintenant = datetime.now(timezone.utc)
     vus = {}
 
-    for page in range(3):
+    for page in range(1, 4):  # Eventfrog numérote les pages à partir de 1, pas 0
         params = {"lat": LAT_CENTRE_VALAIS, "lng": LON_CENTRE_VALAIS, "r": RAYON_KM,
                   "country": "CH", "perPage": 50, "page": page}
         try:
