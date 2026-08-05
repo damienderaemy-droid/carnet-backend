@@ -379,20 +379,27 @@ def rafraichir_evenements_eventfrog():
     headers = {"Authorization": f"Bearer {EVENTFROG_API_KEY}"}
     maintenant = datetime.now(timezone.utc)
     vus = {}
-    for page in range(3):  # jusqu'à 150 événements
-        params = {"zip": NPA_VALAIS, "country": "CH", "perPage": 50, "page": page}
-        try:
-            resp = requests.get("https://api.eventfrog.net/public/v1/events", headers=headers, params=params, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            print(f"Erreur Eventfrog (page {page}) : {e}")
-            break
-        events = data.get("events", [])
-        if not events:
-            break
-        for ev in events:
-            vus[ev.get("id")] = ev
+
+    # Eventfrog refuse la requête si on envoie trop de codes postaux d'un coup
+    # (erreur 400) — on les envoie donc par paquets de 30.
+    TAILLE_PAQUET = 30
+    paquets = [NPA_VALAIS[i:i+TAILLE_PAQUET] for i in range(0, len(NPA_VALAIS), TAILLE_PAQUET)]
+
+    for paquet in paquets:
+        for page in range(3):
+            params = {"zip": paquet, "country": "CH", "perPage": 50, "page": page}
+            try:
+                resp = requests.get("https://api.eventfrog.net/public/v1/events", headers=headers, params=params, timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as e:
+                print(f"Erreur Eventfrog (paquet {paquet[0]}-{paquet[-1]}, page {page}) : {e}")
+                break
+            events = data.get("events", [])
+            if not events:
+                break
+            for ev in events:
+                vus[ev.get("id")] = ev
 
     with get_connexion() as conn:
         with conn.cursor() as cur:
