@@ -226,16 +226,20 @@ def lire_depuis_base(recherche: str = POOL_KEY):
                 "FROM activites WHERE recherche = %s", (POOL_KEY,)
             )
             lignes = cur.fetchall()
-    if not lignes:
-        return [], False
-    # Fraîcheur calculée sur la ligne la plus ancienne, pour être sûr de tout rafraîchir
-    # si une seule des deux sources est périmée.
-    plus_ancien = min(l[11] for l in lignes)
-    fraiche = (datetime.now(timezone.utc) - plus_ancien) < timedelta(hours=24)
-    return [{"nom": n, "resume": r, "genre": g, "duree": d, "source_url": u, "lat": la, "lon": lo,
-              "debut": deb.isoformat() if deb else None, "fin": fin.isoformat() if fin else None,
-              "prix_min": px, "source": src}
-            for n, r, g, d, u, la, lo, deb, fin, px, src, _ in lignes], fraiche
+
+    def fraicheur_source(nom_source):
+        dates = [l[11] for l in lignes if l[10] == nom_source]
+        if not dates:
+            return False  # aucune donnée = pas fraîche, à aller chercher
+        return (datetime.now(timezone.utc) - min(dates)) < timedelta(hours=24)
+
+    fraicheur = {"st": fraicheur_source("st"), "eventfrog": fraicheur_source("eventfrog")}
+
+    resultats = [{"nom": n, "resume": r, "genre": g, "duree": d, "source_url": u, "lat": la, "lon": lo,
+                  "debut": deb.isoformat() if deb else None, "fin": fin.isoformat() if fin else None,
+                  "prix_min": px, "source": src}
+                 for n, r, g, d, u, la, lo, deb, fin, px, src, _ in lignes]
+    return resultats, fraicheur
 
 
 @app.on_event("startup")
@@ -274,10 +278,12 @@ def activites(recherche: str = Query("Sion"), rayon_km: float = Query(20.0)):
     if not ST_API_KEY:
         return {"erreur": "Clé API manquante."}
 
-    pool, fraiche = lire_depuis_base()
-    if not fraiche:
+    pool, fraicheur = lire_depuis_base()
+    if not fraicheur["st"]:
         rafraichir_depuis_api()
+    if not fraicheur["eventfrog"]:
         rafraichir_evenements_eventfrog()
+    if not fraicheur["st"] or not fraicheur["eventfrog"]:
         pool, _ = lire_depuis_base()
 
     centre = geocoder_commune(recherche)
