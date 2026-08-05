@@ -214,10 +214,10 @@
     <div class="eyebrow" id="welcome-back"></div>
     <h1 id="intent-title">Voyons ce qui se passe du côté de Sion.</h1>
     <div class="btn-row">
-      <button class="btn" onclick="chooseWindow('ce soir')">Ce soir</button>
-      <button class="btn btn-ghost" onclick="chooseWindow('ce week-end')">Ce week-end</button>
-      <button class="btn btn-ghost" onclick="chooseWindow('cette semaine')">Cette semaine</button>
-      <button class="btn btn-ghost" onclick="chooseWindow('prochainement')">Prochainement, je regarde large</button>
+      <button class="btn btn-ghost" id="btn-ce-soir" onclick="chooseWindow('ce soir')">Ce soir</button>
+      <button class="btn btn-ghost" id="btn-ce-week-end" onclick="chooseWindow('ce week-end')">Ce week-end</button>
+      <button class="btn btn-ghost" id="btn-cette-semaine" onclick="chooseWindow('cette semaine')">Cette semaine</button>
+      <button class="btn btn-ghost" id="btn-prochainement" onclick="chooseWindow('prochainement')">Prochainement, je regarde large</button>
     </div>
     <div class="footnote" style="margin-top:16px;">
       <button class="link-btn" onclick="ouvrirChangementLieu()">📍 Voir ailleurs qu'à <span id="lieu-actuel">Sion</span></button>
@@ -407,6 +407,13 @@
 
   // ---- Intention -----------------------------------------------------------
   function chooseWindow(w){
+    const idMap = { "ce soir":"btn-ce-soir", "ce week-end":"btn-ce-week-end", "cette semaine":"btn-cette-semaine", "prochainement":"btn-prochainement" };
+    Object.values(idMap).forEach(id => {
+      document.getElementById(id).classList.add('btn-ghost');
+    });
+    const btnActif = document.getElementById(idMap[w]);
+    if (btnActif) btnActif.classList.remove('btn-ghost');
+
     const eyebrow = document.getElementById('swipe-eyebrow');
     const lead = document.getElementById('swipe-lead');
     const digestTitle = document.getElementById('digest-title');
@@ -441,14 +448,17 @@
     }
   }
 
+  const NB_CARTES_CIBLE = 5;
+
   function genererProbes(){
     const genresDisponibles = [...new Set(toutesActivites.map(a => a.genre))];
     const hasHistory = Object.values(scoresConnus).some(v => v > 0);
     const nonExplores = genresDisponibles.filter(g => !(scoresConnus[g] > 0));
     discoveryGenre = (hasHistory && nonExplores.length) ? nonExplores[Math.floor(Math.random()*nonExplores.length)] : null;
 
+    const placesRestantes = discoveryGenre ? NB_CARTES_CIBLE - 1 : NB_CARTES_CIBLE;
     const tries = [...genresDisponibles].sort((a,b) => (scoresConnus[b]||0) - (scoresConnus[a]||0));
-    probes = tries.filter(g => g !== discoveryGenre).map(g => ({
+    probes = tries.filter(g => g !== discoveryGenre).slice(0, placesRestantes).map(g => ({
       genre:g, tag: GENRE_LABELS[g] || g,
       titre: (TEMPLATES[g] || ["Ça pourrait plaire ?"])[Math.floor(Math.random()*2)],
       isDiscovery: false,
@@ -457,6 +467,9 @@
       probes.push({ genre: discoveryGenre, tag: GENRE_LABELS[discoveryGenre] || discoveryGenre,
         titre: `Et si on changeait un peu ? ${(TEMPLATES[discoveryGenre]||[''])[0]}`, isDiscovery: true });
     }
+    // NOTE : s'il y a moins de genres réellement disponibles que la cible,
+    // on affiche ce qu'il y a — impossible d'inventer un genre qui n'existe pas
+    // dans les données du moment.
   }
 
   function renderDeck(){
@@ -521,9 +534,11 @@
     const list = document.getElementById('digest-list');
     list.innerHTML = '';
     const genresChoisis = liked.length ? [...new Set(liked.map(a=>a.genre))] : probes.slice(0,3).map(a=>a.genre);
+    const nomsDejaUtilises = new Set();
     currentPicks = genresChoisis.slice(0,3).map(g => {
-      const options = toutesActivites.filter(a => a.genre === g);
+      const options = toutesActivites.filter(a => a.genre === g && !nomsDejaUtilises.has(a.nom));
       const item = options.length ? options[Math.floor(Math.random()*options.length)] : null;
+      if (item) nomsDejaUtilises.add(item.nom);
       return item ? { ...item, tagLabel: GENRE_LABELS[g]||g, isDiscovery: g===discoveryGenre } : null;
     }).filter(Boolean);
 
