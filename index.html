@@ -318,7 +318,13 @@
 
   async function api(path, options={}){
     const headers = options.headers || {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (clerk && clerk.session){
+      // Le jeton Clerk est très court (souvent ~60s) — on en redemande un frais
+      // à chaque appel plutôt que de réutiliser celui récupéré à la connexion,
+      // sinon tout appel après la première minute échoue silencieusement.
+      const jetonFrais = await clerk.session.getToken();
+      if (jetonFrais) headers['Authorization'] = `Bearer ${jetonFrais}`;
+    }
     const res = await fetch(`${BACKEND}${path}`, { ...options, headers });
     if (!res.ok) throw new Error(`${res.status} sur ${path}`);
     return res.json();
