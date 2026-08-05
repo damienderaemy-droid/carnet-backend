@@ -499,19 +499,28 @@
   function renderDeck(){
     const deck = document.getElementById('deck');
     deck.innerHTML = '';
-    probes.slice(idx, idx+2).reverse().forEach((a,i) => {
+    const visibles = probes.slice(idx, idx+2); // [0]=carte actuelle (celle qu'on juge), [1]=aperçu suivant
+
+    function ajouterCarte(a, estArriere){
       const el = document.createElement('div');
       el.className = 'card-activity' + (a.isDiscovery ? ' discovery' : '');
-      el.style.zIndex = 2-i;
-      el.style.transform = i===1 ? 'scale(0.96) translateY(10px)' : 'scale(1) translateY(0)';
+      el.style.zIndex = estArriere ? 1 : 2;
+      el.style.transform = estArriere ? 'scale(0.96) translateY(10px)' : 'scale(1) translateY(0)';
       el.innerHTML = `
         <div class="art g-${a.genre}">${GENRES_AVEC_ILLUSTRATION.includes(a.genre) ? '' : `<div class="art-icon">${SVG_ICONS[a.genre]||SVG_ICONS.autre}</div>`}</div>
         ${a.isDiscovery ? '<div class="discovery-flag">Découverte</div>' : ''}
         <div class="tag">${a.tag}</div><h3>${a.titre}</h3>`;
       deck.appendChild(el);
-    });
+    }
+
+    // On ajoute d'abord la carte de derrière (aperçu), puis la carte du dessus en dernier
+    // dans le DOM — comme ça elle est bien celle que querySelector(':last-child') attrapera
+    // au moment du swipe, cohérente avec ce que l'œil voit au premier plan.
+    if (visibles[1]) ajouterCarte(visibles[1], true);
+    if (visibles[0]) ajouterCarte(visibles[0], false);
+
     updateProgress();
-    if (idx >= probes.length) buildDigest();
+    if (idx >= probes.length) setTimeout(buildDigest, 250);
   }
 
   function updateProgress(){
