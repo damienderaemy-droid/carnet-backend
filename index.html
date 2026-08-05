@@ -187,8 +187,8 @@
   <!-- PROFIL (une fois, après 1ère connexion) -->
   <div class="screen" id="screen-profil">
     <div class="eyebrow">Carnet — profil</div>
-    <h1>Encore deux ou trois choses.</h1>
-    <p class="lead">Ça ne sera plus jamais redemandé.</p>
+    <h1 id="profil-titre">Encore deux ou trois choses.</h1>
+    <p class="lead" id="profil-lead">Ça ne sera plus jamais redemandé.</p>
     <div class="field-row">
       <div class="chip-input"><label class="mini">Prénom</label><input type="text" id="p-prenom" placeholder="ex: Damien"></div>
       <div class="chip-input"><label class="mini">Nom</label><input type="text" id="p-nom" placeholder="ex: de Raemy"></div>
@@ -204,13 +204,15 @@
         <select id="p-mode"><option>Envoie-moi des idées (push)</option><option>Je regarde quand j'ai un trou (sur demande)</option></select>
       </div>
     </div>
-    <button class="btn" onclick="enregistrerProfil()">Continuer →</button>
+    <button class="btn" onclick="enregistrerProfil()" id="profil-bouton">Continuer →</button>
     <div class="status" id="profil-status"></div>
   </div>
 
   <!-- INTENTION -->
   <div class="screen" id="screen-intent">
-    <div class="topnav"><button onclick="goTo('screen-profil')">←</button></div>
+    <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+      <button class="btn-ghost" style="width:auto; padding:8px 16px; border-radius:999px; font-size:13px; cursor:pointer;" onclick="ouvrirMonProfil()">👤 Mon profil</button>
+    </div>
     <div class="eyebrow" id="welcome-back"></div>
     <h1 id="intent-title">Voyons ce qui se passe du côté de Sion.</h1>
     <div class="btn-row">
@@ -358,6 +360,9 @@
         goTo('screen-intent');
       } else {
         // Pré-remplit avec ce que Clerk connaît déjà, pour gagner du temps
+        document.getElementById('profil-titre').textContent = 'Encore deux ou trois choses.';
+        document.getElementById('profil-lead').textContent = 'Ça ne sera plus jamais redemandé.';
+        document.getElementById('profil-bouton').textContent = 'Continuer →';
         document.getElementById('p-prenom').value = clerk.user.firstName || '';
         document.getElementById('p-nom').value = clerk.user.lastName || '';
         goTo('screen-profil');
@@ -366,6 +371,25 @@
       console.error(e);
       goTo('screen-profil');
     }
+  }
+
+  async function ouvrirMonProfil(){
+    document.getElementById('profil-titre').textContent = 'Mon profil';
+    document.getElementById('profil-lead').textContent = 'Modifie ce qui a changé, puis enregistre.';
+    document.getElementById('profil-bouton').textContent = 'Enregistrer';
+    try {
+      const profil = await api('/mon-profil');
+      if (profil.existe){
+        document.getElementById('p-prenom').value = profil.prenom || '';
+        document.getElementById('p-nom').value = profil.nom || '';
+        document.getElementById('p-commune').value = profil.commune || 'Sion';
+        if (profil.age) document.getElementById('p-age').value = profil.age;
+        if (profil.mode) document.getElementById('p-mode').value = profil.mode;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    goTo('screen-profil');
   }
 
   async function enregistrerProfil(){
