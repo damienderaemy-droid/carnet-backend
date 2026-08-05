@@ -371,35 +371,39 @@ def extraire_genre_eventfrog(url: str) -> str:
 
 def rafraichir_evenements_eventfrog():
     """Récupère les événements datés (concerts, expos, conférences...) via Eventfrog,
-    filtrés sur les codes postaux valaisans réels. Complète les données Switzerland
-    Tourism (qui ne couvrent que les lieux permanents, pas les événements ponctuels)."""
+    centré sur le Valais avec un rayon large. Complète les données Switzerland
+    Tourism (qui ne couvrent que les lieux permanents, pas les événements ponctuels).
+
+    NOTE — limite connue : un rayon en km déborde légèrement hors du canton
+    (ex. Gstaad, qui est dans le canton de Berne mais proche de Sion à vol
+    d'oiseau). Un filtrage par vrais codes postaux valaisans serait plus exact,
+    mais nécessite une liste officielle fiable (ex. opendata.swiss/swisstopo)
+    qu'on n'a pas encore intégrée — à améliorer plus tard si ça pose problème."""
     if not EVENTFROG_API_KEY:
         return
+
+    LAT_CENTRE_VALAIS, LON_CENTRE_VALAIS = 46.2276, 7.3588  # Sion
+    RAYON_KM = 45  # assez large pour couvrir Zermatt/Brigue à l'est et Monthey à l'ouest
 
     headers = {"Authorization": f"Bearer {EVENTFROG_API_KEY}"}
     maintenant = datetime.now(timezone.utc)
     vus = {}
 
-    # Eventfrog refuse la requête si on envoie trop de codes postaux d'un coup
-    # (erreur 400) — on les envoie donc par paquets de 30.
-    TAILLE_PAQUET = 30
-    paquets = [NPA_VALAIS[i:i+TAILLE_PAQUET] for i in range(0, len(NPA_VALAIS), TAILLE_PAQUET)]
-
-    for paquet in paquets:
-        for page in range(3):
-            params = {"zip": paquet, "country": "CH", "perPage": 50, "page": page}
-            try:
-                resp = requests.get("https://api.eventfrog.net/public/v1/events", headers=headers, params=params, timeout=15)
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as e:
-                print(f"Erreur Eventfrog (paquet {paquet[0]}-{paquet[-1]}, page {page}) : {e}")
-                break
-            events = data.get("events", [])
-            if not events:
-                break
-            for ev in events:
-                vus[ev.get("id")] = ev
+    for page in range(3):
+        params = {"lat": LAT_CENTRE_VALAIS, "lng": LON_CENTRE_VALAIS, "r": RAYON_KM,
+                  "country": "CH", "perPage": 50, "page": page}
+        try:
+            resp = requests.get("https://api.eventfrog.net/public/v1/events", headers=headers, params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            print(f"Erreur Eventfrog (page {page}) : {e}")
+            break
+        events = data.get("events", [])
+        if not events:
+            break
+        for ev in events:
+            vus[ev.get("id")] = ev
 
     with get_connexion() as conn:
         with conn.cursor() as cur:
